@@ -7,11 +7,15 @@ import { database } from './database';
 import {
   Lead,
   Company,
+  VehicleType,
+  Area,
+  Yard,
   User,
   DashboardCache,
   SyncQueueItem,
   CreateLeadPayload,
   LeadPhoto,
+  DashboardMetrics,
 } from './types';
 
 // ============================================================================
@@ -25,26 +29,45 @@ export const leadQueries = {
   async create(lead: Omit<Lead, 'created_at' | 'updated_at'>): Promise<void> {
     const sql = `
       INSERT INTO leads (
-        id, prospect_name, prospect_mobile, prospect_email,
-        company_id, vehicle_number, reason_for_valuation,
-        expected_price, photos, notes, status, is_synced, server_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, customer_name, customer_mobile_no, prospect_no,
+        company_id, client_city_id, state_id, city_id, area_id, pincode,
+        reg_no, vehicle_category, vehicle_type_id, vehicle_type_value,
+        manufacture_date, chassis_no, engine_no,
+        yard_id, auto_assign,
+        reason_for_valuation, expected_price, photos, notes,
+        status_id, status, is_synced, server_id, version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     const params = [
       lead.id,
-      lead.prospect_name,
-      lead.prospect_mobile || null,
-      lead.prospect_email || null,
+      lead.customer_name,
+      lead.customer_mobile_no || null,
+      lead.prospect_no || null,
       lead.company_id,
-      lead.vehicle_number || null,
+      lead.client_city_id || null,
+      lead.state_id || null,
+      lead.city_id || null,
+      lead.area_id || null,
+      lead.pincode || null,
+      lead.reg_no || null,
+      lead.vehicle_category || null,
+      lead.vehicle_type_id || null,
+      lead.vehicle_type_value || null,
+      lead.manufacture_date || null,
+      lead.chassis_no || null,
+      lead.engine_no || null,
+      lead.yard_id || null,
+      lead.auto_assign || 0,
       lead.reason_for_valuation || null,
       lead.expected_price || null,
       lead.photos || null,
       lead.notes || null,
+      lead.status_id || 1,
       lead.status,
       lead.is_synced,
       lead.server_id || null,
+      lead.version || '2',
     ];
 
     await database.executeUpdate(sql, params);
@@ -200,8 +223,8 @@ export const companyQueries = {
 
     // Insert new ones
     const sql = `
-      INSERT INTO companies (id, name, country_code)
-      VALUES (?, ?, ?)
+      INSERT INTO companies (id, name, country_code, city_name)
+      VALUES (?, ?, ?, ?)
     `;
 
     for (const company of companies) {
@@ -209,6 +232,7 @@ export const companyQueries = {
         company.id,
         company.name,
         company.country_code || null,
+        (company as any).city_name || null,
       ]);
     }
   },
@@ -228,6 +252,186 @@ export const companyQueries = {
   async getById(id: string): Promise<Company | null> {
     const result = await database.executeQuery<Company>(
       'SELECT * FROM companies WHERE id = ?',
+      [id]
+    );
+    return result[0] || null;
+  },
+};
+
+// ============================================================================
+// VEHICLE TYPES OPERATIONS
+// ============================================================================
+
+export const vehicleTypeQueries = {
+  /**
+   * Save vehicle types for a company
+   */
+  async saveMany(vehicleTypes: VehicleType[], companyId?: string): Promise<void> {
+    // Clear old vehicle types for this company (if specified)
+    if (companyId) {
+      await database.executeUpdate(
+        'DELETE FROM vehicle_types WHERE company_id = ?',
+        [companyId]
+      );
+    } else {
+      await database.executeUpdate('DELETE FROM vehicle_types');
+    }
+
+    // Insert new ones
+    const sql = `
+      INSERT INTO vehicle_types (id, name, company_id)
+      VALUES (?, ?, ?)
+    `;
+
+    for (const vehType of vehicleTypes) {
+      await database.executeUpdate(sql, [
+        vehType.id,
+        vehType.name,
+        vehType.company_id || companyId || null,
+      ]);
+    }
+  },
+
+  /**
+   * Get all vehicle types or filter by company
+   */
+  async getAll(companyId?: string): Promise<VehicleType[]> {
+    if (companyId) {
+      return await database.executeQuery<VehicleType>(
+        'SELECT * FROM vehicle_types WHERE company_id = ? ORDER BY name',
+        [companyId]
+      );
+    }
+    return await database.executeQuery<VehicleType>(
+      'SELECT * FROM vehicle_types ORDER BY name'
+    );
+  },
+
+  /**
+   * Get vehicle type by ID
+   */
+  async getById(id: string): Promise<VehicleType | null> {
+    const result = await database.executeQuery<VehicleType>(
+      'SELECT * FROM vehicle_types WHERE id = ?',
+      [id]
+    );
+    return result[0] || null;
+  },
+};
+
+// ============================================================================
+// AREAS OPERATIONS
+// ============================================================================
+
+export const areaQueries = {
+  /**
+   * Save areas for a city
+   */
+  async saveMany(areas: Area[], cityId?: string): Promise<void> {
+    // Clear old areas for this city (if specified)
+    if (cityId) {
+      await database.executeUpdate(
+        'DELETE FROM areas WHERE city_id = ?',
+        [cityId]
+      );
+    }
+
+    // Insert new ones
+    const sql = `
+      INSERT INTO areas (id, name, pincode, city_id)
+      VALUES (?, ?, ?, ?)
+    `;
+
+    for (const area of areas) {
+      await database.executeUpdate(sql, [
+        area.id,
+        area.name,
+        area.pincode || null,
+        area.city_id || cityId,
+      ]);
+    }
+  },
+
+  /**
+   * Get all areas or filter by city
+   */
+  async getAll(cityId?: string): Promise<Area[]> {
+    if (cityId) {
+      return await database.executeQuery<Area>(
+        'SELECT * FROM areas WHERE city_id = ? ORDER BY name',
+        [cityId]
+      );
+    }
+    return await database.executeQuery<Area>(
+      'SELECT * FROM areas ORDER BY name'
+    );
+  },
+
+  /**
+   * Get area by ID
+   */
+  async getById(id: string): Promise<Area | null> {
+    const result = await database.executeQuery<Area>(
+      'SELECT * FROM areas WHERE id = ?',
+      [id]
+    );
+    return result[0] || null;
+  },
+};
+
+// ============================================================================
+// YARDS OPERATIONS
+// ============================================================================
+
+export const yardQueries = {
+  /**
+   * Save yards for a state
+   */
+  async saveMany(yards: Yard[], stateId?: string): Promise<void> {
+    // Clear old yards for this state (if specified)
+    if (stateId) {
+      await database.executeUpdate(
+        'DELETE FROM yards WHERE state_id = ?',
+        [stateId]
+      );
+    }
+
+    // Insert new ones
+    const sql = `
+      INSERT INTO yards (id, name, state_id)
+      VALUES (?, ?, ?)
+    `;
+
+    for (const yard of yards) {
+      await database.executeUpdate(sql, [
+        yard.id,
+        yard.name,
+        yard.state_id || stateId,
+      ]);
+    }
+  },
+
+  /**
+   * Get all yards or filter by state
+   */
+  async getAll(stateId?: string): Promise<Yard[]> {
+    if (stateId) {
+      return await database.executeQuery<Yard>(
+        'SELECT * FROM yards WHERE state_id = ? ORDER BY name',
+        [stateId]
+      );
+    }
+    return await database.executeQuery<Yard>(
+      'SELECT * FROM yards ORDER BY name'
+    );
+  },
+
+  /**
+   * Get yard by ID
+   */
+  async getById(id: string): Promise<Yard | null> {
+    const result = await database.executeQuery<Yard>(
+      'SELECT * FROM yards WHERE id = ?',
       [id]
     );
     return result[0] || null;
@@ -410,56 +614,52 @@ export const syncQueueQueries = {
 
 export const dashboardQueries = {
   /**
-   * Save dashboard metric
+   * Save dashboard metrics from API response
    */
-  async saveMetric(metric_name: string, metric_value: any): Promise<void> {
+  async save(metrics: DashboardMetrics): Promise<void> {
     const sql = `
       INSERT OR REPLACE INTO dashboard_cache (
-        id, metric_name, metric_value, cached_at
-      ) VALUES (?, ?, ?, ?)
+        id, user_name, open_lead, ro_lead, assigned_lead, re_assigned,
+        ro_confirmation, qc, qc_hold, pricing, completed_leads,
+        out_of_tat_leads, duplicate_leads, payment_request, 
+        rejected_leads, sc_leads, cached_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
 
     await database.executeUpdate(sql, [
-      metric_name,
-      metric_name,
-      JSON.stringify(metric_value),
+      'dashboard_1', // Single row for dashboard data
+      metrics.Name || null,
+      metrics.Openlead || 0,
+      metrics.ROlead || 0,
+      metrics.Assignedlead || 0,
+      metrics.ReAssigned || 0,
+      metrics.RoConfirmation || 0,
+      metrics.QC || 0,
+      metrics.QCHold || 0,
+      metrics.Pricing || 0,
+      metrics.CompletedLeads || 0,
+      metrics.OutofTATLeads || 0,
+      metrics.DuplicateLeads || 0,
+      metrics.PaymentRequest || 0,
+      metrics.RejectedLeads || 0,
+      metrics.SCLeads || 0,
       new Date().toISOString(),
     ]);
   },
 
   /**
-   * Get metric value
+   * Get cached dashboard metrics
    */
-  async getMetric(metric_name: string): Promise<any> {
+  async get(): Promise<DashboardCache | null> {
     const result = await database.executeQuery<DashboardCache>(
-      'SELECT * FROM dashboard_cache WHERE metric_name = ?',
-      [metric_name]
+      'SELECT * FROM dashboard_cache WHERE id = ?',
+      ['dashboard_1']
     );
-
-    if (result[0]?.metric_value) {
-      return JSON.parse(result[0].metric_value);
-    }
-    return null;
+    return result[0] || null;
   },
 
   /**
-   * Get all metrics
-   */
-  async getAll(): Promise<Record<string, any>> {
-    const results = await database.executeQuery<DashboardCache>(
-      'SELECT * FROM dashboard_cache'
-    );
-
-    const metrics: Record<string, any> = {};
-    results.forEach((row) => {
-      metrics[row.metric_name] = JSON.parse(row.metric_value || 'null');
-    });
-
-    return metrics;
-  },
-
-  /**
-   * Clear all cache (for logout)
+   * Clear dashboard cache (for logout)
    */
   async clear(): Promise<void> {
     await database.executeUpdate('DELETE FROM dashboard_cache');

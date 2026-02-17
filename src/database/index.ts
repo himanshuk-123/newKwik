@@ -9,6 +9,10 @@ import {
   leadQueries,
   syncQueueQueries,
   userQueries,
+  companyQueries,
+  vehicleTypeQueries,
+  areaQueries,
+  yardQueries,
 } from './queries';
 
 /**
@@ -42,6 +46,9 @@ export async function resetDatabase(): Promise<void> {
     // Clear leads but NOT sync_queue (in case sync is pending)
     await database.executeUpdate('DELETE FROM leads');
     await database.executeUpdate('DELETE FROM companies');
+    await database.executeUpdate('DELETE FROM vehicle_types');
+    await database.executeUpdate('DELETE FROM areas');
+    await database.executeUpdate('DELETE FROM yards');
 
     console.log('[RESET] Database reset complete');
   } catch (error) {
@@ -117,13 +124,20 @@ export {
   dashboardQueries,
   syncQueueQueries,
   companyQueries,
+  vehicleTypeQueries,
+  areaQueries,
+  yardQueries,
 } from './queries';
 
 export type {
   Lead,
   User,
   Company,
+  VehicleType,
+  Area,
+  Yard,
   DashboardCache,
+  DashboardMetrics,
   SyncQueueItem,
   CreateLeadPayload,
 } from './types';

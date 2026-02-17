@@ -35,34 +35,81 @@ const migrations = [
       -- Leads table (main feature for CreateLead)
       CREATE TABLE IF NOT EXISTS leads (
         id TEXT PRIMARY KEY,
-        prospect_name TEXT NOT NULL,
-        prospect_mobile TEXT,
-        prospect_email TEXT,
+        
+        -- Customer Info
+        customer_name TEXT NOT NULL,
+        customer_mobile_no TEXT,
+        prospect_no TEXT,
+        
+        -- Company & Location
         company_id TEXT NOT NULL,
-        vehicle_number TEXT,
+        client_city_id TEXT,
+        state_id TEXT,
+        city_id TEXT,
+        area_id TEXT,
+        pincode TEXT,
+        
+        -- Vehicle Info
+        reg_no TEXT,
+        vehicle_category TEXT,
+        vehicle_type_id TEXT,
+        vehicle_type_value TEXT,
+        manufacture_date TEXT,
+        chassis_no TEXT,
+        engine_no TEXT,
+        
+        -- Yard (for repo cases)
+        yard_id TEXT,
+        auto_assign INTEGER DEFAULT 0,
+        
+        -- Additional Info
         reason_for_valuation TEXT,
         expected_price TEXT,
-        photos TEXT, -- JSON array of {local_path, server_url?}
+        photos TEXT,
         notes TEXT,
-        status TEXT DEFAULT 'draft', -- draft, pending, completed, rejected
-        is_synced INTEGER DEFAULT 0, -- 0=pending, 1=synced with server
-        server_id TEXT, -- populated after API sync
+        
+        -- Status & Sync
+        status_id INTEGER DEFAULT 1,
+        status TEXT DEFAULT 'draft',
+        is_synced INTEGER DEFAULT 0,
+        server_id TEXT,
+        version TEXT DEFAULT '2',
+        
+        -- Timestamps
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (company_id) REFERENCES companies(id)
+        
+        -- Foreign Keys
+        FOREIGN KEY (company_id) REFERENCES companies(id),
+        FOREIGN KEY (state_id) REFERENCES states(id),
+        FOREIGN KEY (city_id) REFERENCES cities(id),
+        FOREIGN KEY (area_id) REFERENCES areas(id),
+        FOREIGN KEY (yard_id) REFERENCES yards(id),
+        FOREIGN KEY (vehicle_type_id) REFERENCES vehicle_types(id)
       );
 
       -- Create index on status and is_synced for quick filtering
       CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
       CREATE INDEX IF NOT EXISTS idx_leads_synced ON leads(is_synced);
       CREATE INDEX IF NOT EXISTS idx_leads_created ON leads(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_leads_company ON leads(company_id);
 
       -- Companies dropdown cache
       CREATE TABLE IF NOT EXISTS companies (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         country_code TEXT,
+        city_name TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Vehicle Types dropdown cache (from CompanyVehicleList API)
+      CREATE TABLE IF NOT EXISTS vehicle_types (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        company_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (company_id) REFERENCES companies(id)
       );
 
       -- States/Cities dropdown cache
@@ -81,11 +128,43 @@ const migrations = [
         FOREIGN KEY (state_id) REFERENCES states(id)
       );
 
-      -- Dashboard cache (aggregated metrics)
+      -- Areas dropdown cache (from CityAreaList API)
+      CREATE TABLE IF NOT EXISTS areas (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        pincode TEXT,
+        city_id TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (city_id) REFERENCES cities(id)
+      );
+
+      -- Yards dropdown cache (from YardList API)
+      CREATE TABLE IF NOT EXISTS yards (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        state_id TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (state_id) REFERENCES states(id)
+      );
+
+      -- Dashboard cache (aggregated metrics from API)
       CREATE TABLE IF NOT EXISTS dashboard_cache (
         id TEXT PRIMARY KEY,
-        metric_name TEXT UNIQUE NOT NULL, -- 'total_leads', 'pending_leads', etc.
-        metric_value TEXT,
+        user_name TEXT,
+        open_lead INTEGER DEFAULT 0,
+        ro_lead INTEGER DEFAULT 0,
+        assigned_lead INTEGER DEFAULT 0,
+        re_assigned INTEGER DEFAULT 0,
+        ro_confirmation INTEGER DEFAULT 0,
+        qc INTEGER DEFAULT 0,
+        qc_hold INTEGER DEFAULT 0,
+        pricing INTEGER DEFAULT 0,
+        completed_leads INTEGER DEFAULT 0,
+        out_of_tat_leads INTEGER DEFAULT 0,
+        duplicate_leads INTEGER DEFAULT 0,
+        payment_request INTEGER DEFAULT 0,
+        rejected_leads INTEGER DEFAULT 0,
+        sc_leads INTEGER DEFAULT 0,
         cached_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
