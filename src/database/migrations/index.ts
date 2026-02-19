@@ -252,7 +252,16 @@ async function isMigrationRun(
       "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
     );
 
-    if (tableCheck[0].rows.length === 0) {
+    if (!tableCheck || !Array.isArray(tableCheck) || tableCheck.length === 0) {
+      return false;
+    }
+
+    const resultSet = tableCheck[0];
+    if (!resultSet || !resultSet.rows) {
+      return false;
+    }
+
+    if (resultSet.rows.length === 0) {
       // Table doesn't exist yet, so no migrations have run
       return false;
     }
@@ -263,7 +272,11 @@ async function isMigrationRun(
       [version]
     );
 
-    return result[0].rows.length > 0;
+    if (!result || !Array.isArray(result) || result.length === 0) {
+      return false;
+    }
+
+    return result[0] && result[0].rows && result[0].rows.length > 0;
   } catch (error) {
     console.error('[MIGRATIONS] Error checking migration status:', error);
     // If we can't check, assume it hasn't run
@@ -283,9 +296,16 @@ export async function getExecutedMigrations(
     );
 
     const migrations = [];
-    if (result[0] && result[0].rows) {
-      for (let i = 0; i < result[0].rows.length; i++) {
-        migrations.push(result[0].rows.item(i));
+    
+    if (result && Array.isArray(result) && result.length > 0) {
+      const resultSet = result[0];
+      if (resultSet && resultSet.rows && typeof resultSet.rows.length === 'number') {
+        for (let i = 0; i < resultSet.rows.length; i++) {
+          const item = resultSet.rows.item(i);
+          if (item) {
+            migrations.push(item);
+          }
+        }
       }
     }
 

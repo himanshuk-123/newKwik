@@ -648,6 +648,40 @@ export const dashboardQueries = {
   },
 
   /**
+   * Save dashboard using snake_case fields (from auth store)
+   */
+  async saveDashboard(metrics: any): Promise<void> {
+    const sql = `
+      INSERT OR REPLACE INTO dashboard_cache (
+        id, user_name, open_lead, ro_lead, assigned_lead, re_assigned,
+        ro_confirmation, qc, qc_hold, pricing, completed_leads,
+        out_of_tat_leads, duplicate_leads, payment_request, 
+        rejected_leads, sc_leads, cached_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    await database.executeUpdate(sql, [
+      'dashboard_1',
+      metrics.user_name || '',
+      metrics.open_lead || 0,
+      metrics.ro_lead || 0,
+      metrics.assigned_lead || 0,
+      metrics.re_assigned || 0,
+      metrics.ro_confirmation || 0,
+      metrics.qc || 0,
+      metrics.qc_hold || 0,
+      metrics.pricing || 0,
+      metrics.completed_leads || 0,
+      metrics.out_of_tat_leads || 0,
+      metrics.duplicate_leads || 0,
+      metrics.payment_request || 0,
+      metrics.rejected_leads || 0,
+      metrics.sc_leads || 0,
+      metrics.cached_at || new Date().toISOString(),
+    ]);
+  },
+
+  /**
    * Get cached dashboard metrics
    */
   async get(): Promise<DashboardCache | null> {
@@ -656,6 +690,37 @@ export const dashboardQueries = {
       ['dashboard_1']
     );
     return result[0] || null;
+  },
+
+  /**
+   * Get dashboard data (same as get, but returns with snake_case field names)
+   */
+  async getDashboardData(): Promise<any | null> {
+    const result = await database.executeQuery(
+      'SELECT * FROM dashboard_cache WHERE id = ?',
+      ['dashboard_1']
+    );
+    if (!result || result.length === 0) return null;
+    
+    const row = result[0];
+    return {
+      open_lead: row.open_lead,
+      ro_lead: row.ro_lead,
+      assigned_lead: row.assigned_lead,
+      re_assigned: row.re_assigned,
+      ro_confirmation: row.ro_confirmation,
+      qc: row.qc,
+      qc_hold: row.qc_hold,
+      pricing: row.pricing,
+      completed_leads: row.completed_leads,
+      out_of_tat_leads: row.out_of_tat_leads,
+      duplicate_leads: row.duplicate_leads,
+      payment_request: row.payment_request,
+      rejected_leads: row.rejected_leads,
+      sc_leads: row.sc_leads,
+      user_name: row.user_name,
+      cached_at: row.cached_at,
+    };
   },
 
   /**

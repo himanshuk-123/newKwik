@@ -102,9 +102,16 @@ class DatabaseService {
       const rows: T[] = [];
 
       // Convert result to array of objects
-      if (result[0] && result[0].rows && result[0].rows.length > 0) {
-        for (let i = 0; i < result[0].rows.length; i++) {
-          rows.push(result[0].rows.item(i) as T);
+      if (result && Array.isArray(result) && result.length > 0) {
+        const resultSet = result[0];
+        
+        if (resultSet && resultSet.rows && typeof resultSet.rows.length === 'number') {
+          for (let i = 0; i < resultSet.rows.length; i++) {
+            const item = resultSet.rows.item(i);
+            if (item) {
+              rows.push(item as T);
+            }
+          }
         }
       }
 
@@ -129,7 +136,11 @@ class DatabaseService {
       const result = await this.db.executeSql(sql, params);
 
       // result[0].rowsAffected tells us how many rows were affected
-      return result[0].rowsAffected;
+      if (result && Array.isArray(result) && result.length > 0) {
+        return result[0].rowsAffected || 0;
+      }
+
+      return 0;
     } catch (error) {
       console.error('[DB] Update execution failed:', error, 'SQL:', sql);
       throw new Error(
