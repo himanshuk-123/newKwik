@@ -1,16 +1,11 @@
 /**
- * ApiClient — Actual API responses ke saath exactly match karta hai
- * Base: https://uat.kwikcheck.in/App/webservice
+ * ApiClient — Actual API responses se exactly match karta hai
  */
 
 import axios from 'axios';
 
 const BASE_URL = 'https://uat.kwikcheck.in/App/webservice';
 const APP_VERSION = '6';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CORE HTTP HELPER
-// ─────────────────────────────────────────────────────────────────────────────
 
 const apiCall = async <T>(
   endpoint: string,
@@ -105,16 +100,14 @@ export const dashboardApi = (token: string): Promise<DashboardResponse> =>
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLIENT COMPANY LIST
-// Actual response: { CompanyTypeId, id(number), name, TypeName, Addresss(3s),
-//                    StateName, CityName, Pincode, Status }
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ClientCompanyRecord {
   CompanyTypeId: number;
-  id: number;        // number, not string
+  id: number;
   name: string;
   TypeName: string;
-  Addresss: string;  // API has typo — triple 's', keep it
+  Addresss: string;   // API typo — triple s
   StateName: string;
   CityName: string;
   Pincode: string;
@@ -138,14 +131,12 @@ export const fetchClientCompanyListApi = (token: string): Promise<ClientCompanyL
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPANY VEHICLE TYPES
-// Actual response: { id(number), name, name1(vehicle categories "2W,3W") }
-// name1 = supported vehicle categories for this type — stored in DB too
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface VehicleTypeRecord {
   id: number;
-  name: string;    // e.g. "Retail", "Repo", "KAST"
-  name1: string;   // e.g. "2W,3W" — vehicle categories
+  name: string;
+  name1: string;   // vehicle categories e.g. "2W,3W"
 }
 
 export interface CompanyVehicleTypeResponse {
@@ -165,8 +156,6 @@ export const fetchCompanyVehicleTypesApi = (
 
 // ─────────────────────────────────────────────────────────────────────────────
 // YARD LIST
-// Actual response: { id(number), name, StateId(number), CityId, AreaId,
-//                    statename(lowercase), cityname(lowercase), Status, PinCode }
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface YardRecord {
@@ -175,13 +164,13 @@ export interface YardRecord {
   ContactPersonName: string;
   ContactNumber: string;
   Address: string;
-  StateId: number;        // comes in response
+  StateId: number;
   CityId: number;
   AreaId: number;
   Longitude: string | null;
   Latitude: string | null;
-  statename: string;      // lowercase — API field name
-  cityname: string;       // lowercase — API field name
+  statename: string;
+  cityname: string;
   AreaName: string | null;
   Status: string;
   PinCode: string | null;
@@ -207,14 +196,13 @@ export const fetchYardListApi = (
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CITY AREA LIST
-// Actual response: { id(number), name, pincode(string), cityname(lowercase) }
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface AreaRecord {
   id: number;
   name: string;
-  pincode: string;    // string e.g. "744103"
-  cityname: string;   // lowercase e.g. "SOUTH ANDAMAN"
+  pincode: string;
+  cityname: string;
 }
 
 export interface CityAreaListResponse {
@@ -233,39 +221,73 @@ export const fetchCityAreaListApi = (
   apiCall<CityAreaListResponse>(`CityAreaList?CityId=${cityId}`, token, {});
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEAD LIST
-// ⚠️  Actual API response nahi mila — fields assumed hain
-//     Apna actual response dekh ke yahan update karo
+// LEAD LIST STATUSWISE — MyTasks screen ke liye
+// Endpoint: /LeadListStatuswise
+// Actual response fields confirmed from API
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface LeadRecord {
-  Id?: number;
-  id?: number;
-  RegNo?: string;
-  reg_no?: string;
-  CustomerName?: string;
-  customer_name?: string;
-  CustomerMobileNo?: string;
-  customer_mobile?: string;
-  CompanyName?: string;
-  company_name?: string;
-  VehicleType?: string;
-  vehicle_type?: string;
-  Vehicle?: string;
-  vehicle_category?: string;
-  StateName?: string;
-  state?: string;
-  CityName?: string;
-  city?: string;
-  AreaName?: string;
-  area?: string;
-  Status?: string;
-  status?: string;
-  CreatedAt?: string;
-  created_at?: string;
+  Id: number;
+  CompanyId: number;
+  RegNo: string;
+  ProspectNo: string;
+  CustomerName: string;
+  CustomerMobileNo: string;
+  Vehicle: string;                 // "CV", "4W", "2W" etc
+  StateId: number;
+  City: number;
+  Area: number;
+  Pincode: string;
+  RcStatus: number;
+  ManufactureDate: string;
+  ChassisNo: string;
+  EngineNo: string;
+  StatusId: number;
+  ExecutiveName: string | null;
+  ExecutiveMobile: string | null;
+  AddedById: number;
+  AddedByDate: string;
+  UpdatedById: number | null;
+  UpdatedByDate: string | null;
+  VehicleType: number;             // id (number)
+  ClientCityId: number;
+  vehicleCategoryId: number;
+  PaymentStatus: string | null;
+  ValuatorId: number;
+  VehicleTypeRemarkId: number;
+  VehicleTypeRoleId: number;
+  statename: string;               // lowercase
+  cityname: string;                // lowercase
+  areaname: string | null;         // lowercase
+  companyname: string;             // lowercase
+  Clientcityname: string;
+  LeadTypeName: string;            // "Retail", "Repo", "KAST", "Asset verification"
+  VehicleTypeValue: string;        // "CV", "4W" etc
+  LeadUId: string;                 // "CVSl22823"
+  LeadReportId: number | null;
+  AdminRo: string;
+  ValuatorName: string;
+  YardName: string | null;
+  LeadRemark: string;
+  QcUpdateDate: string | null;
+  PriceUpdateDate: string | null;
+  CompletedDate: string | null;
+  RetailBillType: number;
+  RetailFeesAmount: number;
+  RepoBillType: number;
+  RepoFeesAmount: number;
+  CandoBillType: number;
+  CandoFeesAmount: number;
+  AssetBillType: number;
+  AppointmentDate: string | null;
+  AppointmentRemark: string | null;
+  LeadId: string;                  // "A0sPy(*229" — report URL ke liye
+  ViewUrl: string;
+  DownLoadUrl: string;
+  PdfLink: string | null;
 }
 
-export interface LeadListResponse {
+export interface LeadListStatuswiseResponse {
   Error: string;
   Status: string;
   MESSAGE: string;
@@ -274,18 +296,19 @@ export interface LeadListResponse {
   TotalCount: number;
 }
 
-export const fetchLeadListApi = (
+export const fetchLeadListStatuswiseApi = (
   token: string,
-  userId: string
-): Promise<LeadListResponse> =>
-  apiCall<LeadListResponse>('LeadList', token, {
+  params: {
+    StatusId?: number;     // optional filter by status id (SCLeads, QCLeads, etc.)
+  } = {}
+): Promise<LeadListStatuswiseResponse> =>
+  apiCall<LeadListStatuswiseResponse>('LeadListStatuswise', token, {
     Version: '2',
-    UserId: userId,
+    StatusId: params.StatusId ?? 0,
   });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE LEAD
-// ⚠️  Response format assumed — actual se verify karo
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface CreateLeadPayload {
@@ -313,7 +336,7 @@ export interface CreateLeadPayload {
 }
 
 export interface CreateLeadResponse {
-  ERROR: string;   // ⚠️ Assumed — verify karo
+  ERROR: string;
   MESSAGE: string;
 }
 
@@ -322,3 +345,54 @@ export const submitCreateLeadApi = (
   payload: CreateLeadPayload
 ): Promise<CreateLeadResponse> =>
   apiCall<CreateLeadResponse>('CreateLead', token, payload);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFIRM APPOINTMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ConfirmAppointmentResponse {
+  ERROR: string;
+  MESSAGE: string;
+}
+
+export const confirmAppointmentApi = (
+  token: string,
+  leadId: string,
+  appointmentDate: string   // ISO date string
+): Promise<ConfirmAppointmentResponse> =>
+  apiCall<ConfirmAppointmentResponse>('ConfirmAppointment', token, {
+    LeadId: leadId,
+    AppointmentDate: appointmentDate,
+  });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APP STEP LIST — Valuation steps for vehicle inspection
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface AppStepListDataRecord {
+  Id?: number;
+  Name?: string;
+  VehicleType?: string;
+  Images?: boolean;
+  Display?: number;
+  Questions?: string | string[] | null;
+  Answer?: string | null;
+  Appcolumn?: string;
+}
+
+export interface AppStepListResponse {
+  ERROR: string;
+  MESSAGE: string;
+  DataList: AppStepListDataRecord[];
+}
+
+export const fetchAppStepListApi = (
+  token: string,
+  leadId: string
+): Promise<AppStepListResponse> =>
+  apiCall<AppStepListResponse>('AppStepList', token, {
+    Version: '2',
+    LeadId: leadId,
+    StepName: '',
+    DropDownName: '',
+  });

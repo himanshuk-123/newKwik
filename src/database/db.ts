@@ -9,68 +9,87 @@ SQLite.enablePromise(true);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MIGRATIONS
-// Jab bhi schema change karo — naya migration yahan add karo
-// Migration sirf ek baar chalti hai (sync_meta se track hoti hai)
-//
-// HOW TO ADD NEW MIGRATION:
-//   1. Naya object push karo MIGRATIONS array mein
-//   2. version badhao (last version + 1)
-//   3. sql mein koi bhi schema change likho
-//
-// IMPORTANT: Purane migrations KABHI mat hatao ya edit karo
+// Purane migrations kabhi mat hatao ya edit karo
+// Naya migration add karna ho to MIGRATIONS array mein push karo
 // ─────────────────────────────────────────────────────────────────────────────
 
 const MIGRATIONS: { version: number; sql: string }[] = [
-  {
-    version: 1,
-    // vehicle_types table mein vehicle_categories column add karo
-    // (name1 from API — e.g. "2W,3W")
-    sql: `ALTER TABLE vehicle_types ADD COLUMN vehicle_categories TEXT`,
-  },
-  {
-    version: 2,
-    // yards table mein extra columns add karo
-    sql: `ALTER TABLE yards ADD COLUMN city_id TEXT`,
-  },
-  {
-    version: 3,
-    sql: `ALTER TABLE yards ADD COLUMN state_name TEXT`,
-  },
-  {
-    version: 4,
-    sql: `ALTER TABLE yards ADD COLUMN city_name TEXT`,
-  },
-  {
-    version: 5,
-    sql: `ALTER TABLE yards ADD COLUMN status TEXT DEFAULT 'Active'`,
-  },
-  {
-    version: 6,
-    // areas table mein city_name add karo
-    sql: `ALTER TABLE areas ADD COLUMN city_name TEXT`,
-  },
-  {
-    version: 7,
-    // cities table mein state_id add karo (city → state mapping)
-    sql: `ALTER TABLE cities ADD COLUMN state_id TEXT`,
-  },
-  {
-    version: 8,
-    // companies table mein extra fields add karo
-    sql: `ALTER TABLE companies ADD COLUMN type_name TEXT`,
-  },
-  {
-    version: 9,
-    sql: `ALTER TABLE companies ADD COLUMN state_name TEXT`,
-  },
-  {
-    version: 10,
-    sql: `ALTER TABLE companies ADD COLUMN city_name TEXT`,
-  },
-  {
-    version: 11,
-    sql: `ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'Active'`,
-  },
+  // vehicle_types
+  { version: 1, sql: `ALTER TABLE vehicle_types ADD COLUMN vehicle_categories TEXT` },
+  // yards
+  { version: 2, sql: `ALTER TABLE yards ADD COLUMN city_id TEXT` },
+  { version: 3, sql: `ALTER TABLE yards ADD COLUMN state_name TEXT` },
+  { version: 4, sql: `ALTER TABLE yards ADD COLUMN city_name TEXT` },
+  { version: 5, sql: `ALTER TABLE yards ADD COLUMN status TEXT DEFAULT 'Active'` },
+  // areas
+  { version: 6, sql: `ALTER TABLE areas ADD COLUMN city_name TEXT` },
+  // cities
+  { version: 7, sql: `ALTER TABLE cities ADD COLUMN state_id TEXT` },
+  // companies
+  { version: 8, sql: `ALTER TABLE companies ADD COLUMN type_name TEXT` },
+  { version: 9, sql: `ALTER TABLE companies ADD COLUMN state_name TEXT` },
+  { version: 10, sql: `ALTER TABLE companies ADD COLUMN city_name TEXT` },
+  { version: 11, sql: `ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'Active'` },
+
+  // ── LEADS TABLE — full rebuild with actual API fields ──────────────────────
+  // Purana leads table drop karo aur naya banao
+  // (Data dobara sync hoga — safe hai kyunki leads DB mein sirf cache hai)
+  { version: 12, sql: `DROP TABLE IF EXISTS leads` },
+  { version: 13, sql: `
+    CREATE TABLE IF NOT EXISTS leads (
+      id TEXT PRIMARY KEY,
+      lead_uid TEXT,
+      lead_id TEXT,
+      reg_no TEXT,
+      prospect_no TEXT,
+      customer_name TEXT,
+      customer_mobile TEXT,
+      company_id TEXT,
+      company_name TEXT,
+      vehicle TEXT,
+      vehicle_type_id TEXT,
+      vehicle_type_name TEXT,
+      vehicle_type_value TEXT,
+      state_id TEXT,
+      state_name TEXT,
+      city_id TEXT,
+      city_name TEXT,
+      area_id TEXT,
+      area_name TEXT,
+      client_city_id TEXT,
+      client_city_name TEXT,
+      pincode TEXT,
+      chassis_no TEXT,
+      engine_no TEXT,
+      status_id TEXT,
+      yard_name TEXT,
+      lead_report_id TEXT,
+      view_url TEXT,
+      download_url TEXT,
+      appointment_date TEXT,
+      added_by_date TEXT,
+      retail_bill_type TEXT,
+      retail_fees_amount REAL DEFAULT 0,
+      repo_bill_type TEXT,
+      repo_fees_amount REAL DEFAULT 0,
+      cando_bill_type TEXT,
+      cando_fees_amount REAL DEFAULT 0,
+      asset_bill_type TEXT,
+      valuator_name TEXT,
+      admin_ro TEXT,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  // App Steps table for offline valuation data caching
+  // Cache karenge vehicle_type ke basis pe (2W, 4W, etc.)
+  { version: 14, sql: `
+    CREATE TABLE IF NOT EXISTS app_steps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      vehicle_type TEXT UNIQUE NOT NULL,
+      steps_data TEXT NOT NULL,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,45 +97,31 @@ const MIGRATIONS: { version: number; sql: string }[] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 const runMigrations = async (): Promise<void> => {
-  // Migration version track karne ke liye table banao
   await run(
     `CREATE TABLE IF NOT EXISTS db_migrations (
       version INTEGER PRIMARY KEY,
       applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`,
-    []
+    )`, []
   );
 
-  // Kaunsi migrations pehle se run ho chuki hain
   const applied = await select<{ version: number }>(
     'SELECT version FROM db_migrations ORDER BY version ASC'
   );
   const appliedVersions = new Set(applied.map(r => r.version));
 
-  // Pending migrations run karo ek ek karke
   for (const migration of MIGRATIONS) {
-    if (appliedVersions.has(migration.version)) {
-      continue; // Already applied — skip
-    }
+    if (appliedVersions.has(migration.version)) continue;
 
     try {
-      await run(migration.sql, []);
-      await run(
-        'INSERT INTO db_migrations (version) VALUES (?)',
-        [migration.version]
-      );
+      await run(migration.sql.trim(), []);
+      await run('INSERT INTO db_migrations (version) VALUES (?)', [migration.version]);
       console.log(`[DB] Migration v${migration.version} applied.`);
     } catch (e: any) {
-      // "duplicate column" error ignore karo — column already exists
       if (e?.message?.includes('duplicate column')) {
-        console.log(`[DB] Migration v${migration.version} — column already exists, skipping.`);
-        await run(
-          'INSERT OR IGNORE INTO db_migrations (version) VALUES (?)',
-          [migration.version]
-        );
+        await run('INSERT OR IGNORE INTO db_migrations (version) VALUES (?)', [migration.version]);
+        console.log(`[DB] Migration v${migration.version} — column exists, skipped.`);
       } else {
         console.error(`[DB] Migration v${migration.version} failed:`, e);
-        // Migration fail hone par bhi aage badhte hain — app crash nahi hona chahiye
       }
     }
   }
@@ -136,24 +141,16 @@ export const initDb = async (): Promise<SQLite.SQLiteDatabase> => {
     .then(async (instance) => {
       db = instance;
 
-      // Step 1: Base tables banao (CREATE TABLE IF NOT EXISTS — safe)
+      // Step 1: Base tables
       await new Promise<void>((resolve, reject) => {
         db!.transaction(
-          (tx) => {
-            TABLES.forEach((sql) => tx.executeSql(sql));
-          },
-          (error) => {
-            console.error('[DB] Table creation failed:', error);
-            reject(error);
-          },
-          () => {
-            console.log('[DB] All tables created/verified successfully');
-            resolve();
-          }
+          (tx) => { TABLES.forEach((sql) => tx.executeSql(sql)); },
+          (error) => { console.error('[DB] Table creation failed:', error); reject(error); },
+          () => { console.log('[DB] All tables created/verified.'); resolve(); }
         );
       });
 
-      // Step 2: Migrations run karo (naye columns add karo agar missing hain)
+      // Step 2: Migrations
       await runMigrations();
 
       return db!;
@@ -163,9 +160,7 @@ export const initDb = async (): Promise<SQLite.SQLiteDatabase> => {
       initPromise = null;
       throw error;
     })
-    .finally(() => {
-      initPromise = null;
-    });
+    .finally(() => { initPromise = null; });
 
   return initPromise;
 };
@@ -180,13 +175,9 @@ export const getDb = (): SQLite.SQLiteDatabase => {
 };
 
 export const closeDb = async (): Promise<void> => {
-  if (db) {
-    await db.close();
-    db = null;
-  }
+  if (db) { await db.close(); db = null; }
 };
 
-/** SELECT — returns typed array */
 export const select = async <T = any>(sql: string, params: any[] = []): Promise<T[]> => {
   const result = await getDb().executeSql(sql, params);
   const rows: T[] = [];
@@ -198,40 +189,41 @@ export const select = async <T = any>(sql: string, params: any[] = []): Promise<
   return rows;
 };
 
-/** INSERT / UPDATE / DELETE */
 export const run = async (
   sql: string,
   params: any[] = []
 ): Promise<{ rowsAffected: number; insertId?: number }> => {
   const result = await getDb().executeSql(sql, params);
-  return {
-    rowsAffected: result[0].rowsAffected,
-    insertId: result[0].insertId,
-  };
+  return { rowsAffected: result[0].rowsAffected, insertId: result[0].insertId };
 };
 
-/**
- * runBatch — ek SQL, bahut saare rows, EK transaction mein
- * 800 rows = 1 transaction (pehle 800 alag alag calls thi)
- */
-export const runBatch = async (
-  sql: string,
-  paramsList: any[][]
-): Promise<void> => {
+export const runBatch = async (sql: string, paramsList: any[][]): Promise<void> => {
   if (!paramsList.length) return;
-
   return new Promise((resolve, reject) => {
     getDb().transaction(
-      (tx) => {
-        for (const params of paramsList) {
-          tx.executeSql(sql, params);
-        }
-      },
-      (error) => {
-        console.error('[DB] runBatch failed:', error);
-        reject(error);
-      },
+      (tx) => { for (const params of paramsList) tx.executeSql(sql, params); },
+      (error) => { console.error('[DB] runBatch failed:', error); reject(error); },
       () => resolve()
     );
   });
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APP STEPS HELPERS — Valuation steps offline access
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getAppStepsForVehicleType = async (vehicleType: string): Promise<any[] | null> => {
+  try {
+    const rows = await select<{ steps_data: string }>(
+      'SELECT steps_data FROM app_steps WHERE vehicle_type = ?',
+      [vehicleType]
+    );
+    if (rows.length > 0) {
+      return JSON.parse(rows[0].steps_data);
+    }
+    return null;
+  } catch (e) {
+    console.error('[DB] getAppStepsForVehicleType failed:', e);
+    return null;
+  }
 };

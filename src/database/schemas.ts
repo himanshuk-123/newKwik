@@ -112,20 +112,49 @@ export const AREAS_TABLE = `
 export const LEADS_TABLE = `
   CREATE TABLE IF NOT EXISTS leads (
     id TEXT PRIMARY KEY,
+    lead_uid TEXT,
+    lead_id TEXT,
     reg_no TEXT,
+    prospect_no TEXT,
     customer_name TEXT,
     customer_mobile TEXT,
+    company_id TEXT,
     company_name TEXT,
-    vehicle_type TEXT,
-    vehicle_category TEXT,
-    state TEXT,
-    city TEXT,
-    area TEXT,
-    status TEXT,
-    created_at DATETIME,
+    vehicle TEXT,
+    vehicle_type_id TEXT,
+    vehicle_type_name TEXT,
+    vehicle_type_value TEXT,
+    state_id TEXT,
+    state_name TEXT,
+    city_id TEXT,
+    city_name TEXT,
+    area_id TEXT,
+    area_name TEXT,
+    client_city_id TEXT,
+    client_city_name TEXT,
+    pincode TEXT,
+    chassis_no TEXT,
+    engine_no TEXT,
+    status_id TEXT,
+    yard_name TEXT,
+    lead_report_id TEXT,
+    view_url TEXT,
+    download_url TEXT,
+    appointment_date TEXT,
+    added_by_date TEXT,
+    retail_bill_type TEXT,
+    retail_fees_amount REAL DEFAULT 0,
+    repo_bill_type TEXT,
+    repo_fees_amount REAL DEFAULT 0,
+    cando_bill_type TEXT,
+    cando_fees_amount REAL DEFAULT 0,
+    asset_bill_type TEXT,
+    valuator_name TEXT,
+    admin_ro TEXT,
     synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `;
+
 
 export const PENDING_LEADS_TABLE = `
   CREATE TABLE IF NOT EXISTS pending_leads (
@@ -146,6 +175,18 @@ export const SYNC_META_TABLE = `
   );
 `;
 
+export const APP_STEPS_TABLE = `
+  CREATE TABLE IF NOT EXISTS app_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    vehicle_type TEXT UNIQUE NOT NULL,
+    steps_data TEXT NOT NULL,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+// vehicle_type = "2W", "4W", "3W", "FE", "CV", "CE"
+// steps_data = JSON.stringify(DataList) from AppStepList API
+// Valuation screen ke liye offline cached steps
+
 // ✅ Sab tables — states aur cities included
 export const TABLES = [
   USER_TABLE,
@@ -159,4 +200,5 @@ export const TABLES = [
   LEADS_TABLE,
   PENDING_LEADS_TABLE,
   SYNC_META_TABLE,
+  APP_STEPS_TABLE,
 ];

@@ -1,8 +1,11 @@
 import React, { useEffect } from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, ActivityIndicator, StyleSheet ,Platform,StatusBar} from 'react-native';
 import { initDb } from './src/database';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAppStore } from './src/store/AppStore';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaView } from 'react-native-safe-area-context'
+import 'react-native-reanimated';
 
 const App = () => {
   const { loadStoredUser, isAppReady } = useAppStore();
@@ -31,8 +34,16 @@ const App = () => {
       </View>
     );
   }
-
-  return <RootNavigator />;
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      {Platform.OS === 'android' && (
+        <View style={{ height: StatusBar.currentHeight, backgroundColor: '#1181B2' }} />
+      )}
+      <SafeAreaView style={{ flex: 1 }}>
+        <RootNavigator />
+      </SafeAreaView>
+    </GestureHandlerRootView>
+  )
 };
 
 const styles = StyleSheet.create({

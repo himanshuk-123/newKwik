@@ -17,12 +17,14 @@ import { useNavigation } from "@react-navigation/native";
 
 import { COLORS } from "../constants/Colors";
 import { useAppStore } from "../store/AppStore";
+import { run } from "../database";
 
 type DisplayProps = {
   value: number;
   text: string;
   icon: string;
   color: "Grey" | "Orange" | "Blue" | "Green";
+   redirectTo?: string;
 };
 
 const DisplayComponent = ({
@@ -30,7 +32,9 @@ const DisplayComponent = ({
   text,
   icon,
   color,
+  redirectTo
 }: DisplayProps) => {
+  const navigation = useNavigation<any>();  
   return (
     <View style={styles.displayContainer}>
       <View
@@ -49,7 +53,10 @@ const DisplayComponent = ({
         </Text>
       </View>
 
-      <View
+      <TouchableOpacity
+        activeOpacity={0.7}
+        disabled={!redirectTo}
+        onPress={() => redirectTo && navigation.navigate(redirectTo)}
         style={styles.displayTextContainer}
       >
         <MaterialIcons
@@ -66,8 +73,8 @@ const DisplayComponent = ({
           color={COLORS.Dashboard.text[color]}
           style={styles.arrowIcon}
         />
-      </View>
-    </View>
+        </TouchableOpacity>
+            </View>
   );
 };
 
@@ -127,6 +134,14 @@ const Dashboard = () => {
       </View>
     );
   }
+ const checkValuationData = async () => {
+    try {
+      const result = await run("Select * from app_steps");
+      console.log("App Steps Data:", result);
+    } catch (error) {
+      console.error("Error checking valuation data:", error);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -156,6 +171,7 @@ const Dashboard = () => {
           text="Assigned"
           icon="content-copy"
           color="Grey"
+          redirectTo="MyTasks"
         />
         <DisplayComponent
           value={qcHold}
@@ -172,6 +188,9 @@ const Dashboard = () => {
         />
         <TouchableOpacity onPress={logoutUser}>
   <Text>Logout</Text>
+</TouchableOpacity>
+        <TouchableOpacity onPress={checkValuationData }>
+  <Text>Check Valuation Data</Text>
 </TouchableOpacity>
       </ScrollView>
 
