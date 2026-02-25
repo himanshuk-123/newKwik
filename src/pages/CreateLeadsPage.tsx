@@ -1,733 +1,819 @@
-import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
-  Modal,
-  FlatList,
-  ScrollView,
-  ActivityIndicator,
-  ToastAndroid,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import React, { useCallback, useEffect, useState, useMemo } from "react";
-import MaterialIcons from "react-native-vector-icons/MaterialIcons";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import { COLORS } from "../constants/Colors";
-
 /**
- * Create Lead Screen
- * 
- * FLOW:
- * 1. Load dropdown data from DATABASE (works OFFLINE ✅)
- * 2. User fills form:
- *    - Customer name
- *    - Mobile number
- *    - Select company, state, city, area, vehicle type, etc
- * 3. User clicks "Create Lead"
- * 4. Save to DATABASE immediately (works OFFLINE ✅)
- * 5. Add to SYNC QUEUE to upload later
- * 6. Show success message
- * 7. Go back to Dashboard
- * 8. Background worker syncs when online
+ * CreateLead Screen — OFFLINE FIRST
+ *
+ * Sab dropdowns LOCAL DB se aate hain — koi API call nahi
+ * Login ke waqt syncAllData() ne sab save kar diya hai
+ *
+ * Submit:
+ *   Online  → API call seedha
+ *   Offline → pending_leads table → background sync karega
  */
 
+import React, { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  ToastAndroid,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import NetInfo from '@react-native-community/netinfo';
+import { COLORS } from '../constants/Colors';
+import { STATE_CITY_LIST } from '../constants/StateCityList';
+import { select, run } from '../database/db';
+import { submitCreateLeadApi, CreateLeadPayload } from '../services/ApiClient';
+import { fetchAreasForCity } from '../services/syncService';
+import { useAppStore } from '../store/AppStore';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface FormData {
-  customer_name: string;
-  customer_mobile_no: string;
   company_id: string;
-  state_id: string;
-  city_id: string;
-  area_id: string;
-  yard_id: string;
-  reg_no: string;
-  vehicle_category: string;
+  company_name: string;
   vehicle_type_id: string;
-  manufacture_date: string;
+  vehicle_type_name: string;
+  vehicle_category: string;     // "2W" | "4W" | "3W" etc — name1 se aata hai
+  client_city_id: string;
+  client_city_name: string;
+  reg_no: string;
+  prospect_no: string;
+  customer_name: string;
+  customer_mobile: string;
+  state_id: string;
+  state_name: string;
+  city_id: string;
+  city_name: string;
+  area_id: string;
+  area_name: string;
+  customer_pin: string;
+  yard_id: string;
+  yard_name: string;
   chassis_no: string;
-  engine_no: string;
 }
 
-interface Dropdown {
-  id: number | string;
+interface DropdownItem {
+  id: string;
   name: string;
 }
 
+interface VehicleTypeItem extends DropdownItem {
+  vehicle_categories: string; // "2W,3W" — name1 from API
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INITIAL STATE
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INITIAL_FORM: FormData = {
+  company_id: '', company_name: '',
+  vehicle_type_id: '', vehicle_type_name: '', vehicle_category: '',
+  client_city_id: '', client_city_name: '',
+  reg_no: '', prospect_no: '',
+  customer_name: '', customer_mobile: '',
+  state_id: '', state_name: '',
+  city_id: '', city_name: '',
+  area_id: '', area_name: '',
+  customer_pin: '',
+  yard_id: '', yard_name: '',
+  chassis_no: '',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
 const CreateLeads = () => {
   const navigation = useNavigation<any>();
+  const { user } = useAppStore();
 
-  // Form State
-  const [formData, setFormData] = useState<FormData>({
-    customer_name: "",
-    customer_mobile_no: "",
-    company_id: "",
-    state_id: "",
-    city_id: "",
-    area_id: "",
-    yard_id: "",
-    reg_no: "",
-    vehicle_category: "4W",
-    vehicle_type_id: "",
-    manufacture_date: "",
-    chassis_no: "",
-    engine_no: "",
-  });
+  const [formData, setFormData] = useState<FormData>({ ...INITIAL_FORM });
 
-  // Dropdown Data (loaded from DATABASE)
-  const [dropdowns, setDropdowns] = useState({
-    companies: [] as Dropdown[],
-    states: [] as Dropdown[],
-    cities: [] as Dropdown[],
-    areas: [] as Dropdown[],
-    yards: [] as Dropdown[],
-    vehicleTypes: [] as Dropdown[],
-  });
+  // Dropdown lists
+  const [companies, setCompanies] = useState<DropdownItem[]>([]);
+  const [vehicleTypes, setVehicleTypes] = useState<VehicleTypeItem[]>([]);
+  const [vehicleCategories, setVehicleCategories] = useState<DropdownItem[]>([]);
+  const [customerCities, setCustomerCities] = useState<DropdownItem[]>([]);
+  const [areas, setAreas] = useState<DropdownItem[]>([]);
+  const [yards, setYards] = useState<DropdownItem[]>([]);
 
-  // Modal State
+  // Constants se seedha — no DB/API needed
+  const states: DropdownItem[] = useMemo(() =>
+    STATE_CITY_LIST.STATE_LIST.CircleList.map(s => ({ id: String(s.id), name: s.name })),
+    []
+  );
+  const clientCities: DropdownItem[] = useMemo(() =>
+    STATE_CITY_LIST.CITY_LIST.DataRecord.map(c => ({ id: String(c.id), name: c.name })),
+    []
+  );
+
+  // Modal state
   const [showModal, setShowModal] = useState(false);
-  const [modalData, setModalData] = useState<Dropdown[]>([]);
-  const [modalTitle, setModalTitle] = useState("");
-  const [modalKey, setModalKey] = useState<keyof FormData | null>(null);
-  const [filterText, setFilterText] = useState("");
+  const [modalItems, setModalItems] = useState<DropdownItem[]>([]);
+  const [modalTitle, setModalTitle] = useState('');
+  const [activeField, setActiveField] = useState('');
+  const [filterText, setFilterText] = useState('');
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Load drop down data from DATABASE on focus
+  // ── Load companies on focus ─────────────────────────────────────────────
+
   useFocusEffect(
     useCallback(() => {
-      loadDropdownData();
+      loadCompanies();
     }, [])
   );
 
-  const loadDropdownData = async () => {
+  const loadCompanies = async () => {
     try {
       setIsLoading(true);
-
-      const {
-        companyQueries,
-        stateQueries,
-        cityQueries,
-        areaQueries,
-        yardQueries,
-      } = await import("../database");
-
-      // Load from database
-      const companies = await companyQueries.getAll();
-      const states = await stateQueries.getAll();
-      const cities = await cityQueries.getAll();
-      const areas = await areaQueries.getAll();
-      const yards = await yardQueries.getAll();
-
-      setDropdowns({
-        companies: companies.map((c: any) => ({
-          id: c.id,
-          name: c.name,
-        })),
-        states: states.map((s: any) => ({
-          id: s.id,
-          name: s.name,
-        })),
-        cities: cities.map((c: any) => ({
-          id: c.id,
-          name: c.name,
-        })),
-        areas: areas.map((a: any) => ({
-          id: a.id,
-          name: a.name,
-        })),
-        yards: yards.map((y: any) => ({
-          id: y.id,
-          name: y.name,
-        })),
-        vehicleTypes: [],
-      });
-
-      console.log(
-        "[CreateLeads] Loaded dropdowns:",
-        companies.length,
-        states.length
+      // companies table: id, name, type_name, state_name, city_name, status
+      const rows = await select<{ id: string; name: string }>(
+        'SELECT id, name FROM companies ORDER BY name'
       );
-    } catch (error) {
-      console.error("[CreateLeads] Error loading dropdowns:", error);
-      ToastAndroid.show("Failed to load form data", ToastAndroid.SHORT);
+      setCompanies(rows);
+      console.log('[CreateLeads] Companies from DB:', rows.length);
+    } catch (e) {
+      console.error('[CreateLeads] loadCompanies error:', e);
+      ToastAndroid.show('Failed to load companies', ToastAndroid.SHORT);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Filtered modal data
-  const filteredModalData = useMemo(() => {
-    return modalData.filter((item) =>
-      item.name.toLowerCase().includes(filterText.toLowerCase())
-    );
-  }, [modalData, filterText]);
+  // ── Field updater ───────────────────────────────────────────────────────
 
-  const openModal = (
-    key: keyof FormData,
-    data: Dropdown[],
-    title: string
-  ) => {
-    setModalKey(key);
-    setModalData(data);
+  const setField = (updates: Partial<FormData>) =>
+    setFormData(prev => ({ ...prev, ...updates }));
+
+  // ── Modal ───────────────────────────────────────────────────────────────
+
+  const openModal = (field: string, items: DropdownItem[], title: string) => {
+    setActiveField(field);
+    setModalItems(items);
     setModalTitle(title);
-    setFilterText("");
+    setFilterText('');
     setShowModal(true);
   };
 
-  const selectValue = (item: Dropdown) => {
-    setFormData((prev) => ({
-      ...prev,
-      [modalKey!]: String(item.id),
-    }));
+  const filteredItems = useMemo(
+    () => modalItems.filter(i => i.name.toLowerCase().includes(filterText.toLowerCase())),
+    [modalItems, filterText]
+  );
+
+  const onSelect = async (item: DropdownItem) => {
     setShowModal(false);
 
-    // When company is selected, load vehicle types from database
-    if (modalKey === "company_id") {
-      loadVehicleTypesForCompany(Number(item.id));
-    }
+    switch (activeField) {
 
-    // When city is selected, load areas
-    if (modalKey === "city_id") {
-      loadAreasForCity(Number(item.id));
+      case 'company':
+        setField({
+          company_id: item.id, company_name: item.name,
+          vehicle_type_id: '', vehicle_type_name: '', vehicle_category: '',
+        });
+        setVehicleTypes([]);
+        setVehicleCategories([]);
+        await loadVehicleTypes(item.id);
+        break;
+
+      case 'vehicle_type': {
+        // vehicle_categories (name1) se categories parse karo
+        const vtItem = item as VehicleTypeItem;
+        const cats = vtItem.vehicle_categories
+          ? vtItem.vehicle_categories
+              .split(',')
+              .map(c => c.trim())
+              .filter(c => c.length > 0)   // ✅ leading comma filter — API data ",2W,3W" → ["2W","3W"]
+              .map((c, i) => ({ id: String(i), name: c }))
+          : [];
+        setVehicleCategories(cats);
+        setField({
+          vehicle_type_id: item.id,
+          vehicle_type_name: item.name,
+          vehicle_category: cats.length === 1 ? cats[0].name : '', // auto-select if only one
+        });
+        break;
+      }
+
+      case 'vehicle_category':
+        setField({ vehicle_category: item.name });
+        break;
+
+      case 'state':
+        setField({
+          state_id: item.id, state_name: item.name,
+          city_id: '', city_name: '',
+          area_id: '', area_name: '',
+          yard_id: '', yard_name: '',
+        });
+        setCustomerCities([]);
+        setAreas([]);
+        setYards([]);
+        loadCustomerCities(item.id);
+        await loadYards(item.id);
+        break;
+
+      case 'city':
+        setField({ city_id: item.id, city_name: item.name, area_id: '', area_name: '' });
+        setAreas([]);
+        await loadAreas(item.id);
+        break;
+
+      case 'area':
+        setField({ area_id: item.id, area_name: item.name });
+        break;
+
+      case 'client_city':
+        setField({ client_city_id: item.id, client_city_name: item.name });
+        break;
+
+      case 'yard':
+        setField({ yard_id: item.id, yard_name: item.name });
+        break;
     }
   };
 
-  const loadVehicleTypesForCompany = async (companyId: number) => {
-    try {
-      const { vehicleTypeQueries } = await import("../database");
+  // ── DB Loaders ──────────────────────────────────────────────────────────
 
-      // Get vehicle types for selected company from database
-      const types = await vehicleTypeQueries.getAll();
-      const filtered = types.filter(
-        (t: any) => t.company_id === companyId
+  const loadVehicleTypes = async (companyId: string) => {
+    try {
+      // vehicle_types: id, company_id, name, vehicle_categories
+      const rows = await select<VehicleTypeItem>(
+        'SELECT id, name, vehicle_categories FROM vehicle_types WHERE company_id = ? ORDER BY name',
+        [companyId]
       );
+      setVehicleTypes(rows);
+      console.log('[CreateLeads] VehicleTypes from DB:', rows.length, 'for company:', companyId);
 
-      setDropdowns((prev) => ({
-        ...prev,
-        vehicleTypes: filtered.map((t: any) => ({
-          id: t.id,
-          name: t.name,
-        })),
-      }));
-    } catch (error) {
-      console.error("[CreateLeads] Error loading vehicle types:", error);
+      if (!rows.length) {
+        ToastAndroid.show('No vehicle types found. Data still syncing?', ToastAndroid.SHORT);
+      }
+    } catch (e) {
+      console.error('[CreateLeads] loadVehicleTypes error:', e);
     }
   };
 
-  const loadAreasForCity = async (cityId: number) => {
+  const loadCustomerCities = (stateId: string) => {
+    // Constants se filter — stateid field check karo
+    const filtered = STATE_CITY_LIST.CITY_LIST.DataRecord
+      .filter(c => String(c.stateid) === stateId)
+      .map(c => ({ id: String(c.id), name: c.name }));
+    setCustomerCities(filtered);
+    console.log('[CreateLeads] Cities for state', stateId, ':', filtered.length);
+  };
+
+  const loadYards = async (stateId: string) => {
     try {
-      const { areaQueries } = await import("../database");
-
-      // Get areas for selected city from database
-      const areas = await areaQueries.getAll();
-      const filtered = areas.filter((a: any) => a.city_id === cityId);
-
-      setDropdowns((prev) => ({
-        ...prev,
-        areas: filtered.map((a: any) => ({
-          id: a.id,
-          name: a.name,
-        })),
-      }));
-    } catch (error) {
-      console.error("[CreateLeads] Error loading areas:", error);
+      // yards: id, name, state_id, city_id, state_name, city_name, status
+      const rows = await select<{ id: string; name: string }>(
+        'SELECT id, name FROM yards WHERE state_id = ? ORDER BY name',
+        [stateId]
+      );
+      setYards(rows);
+      console.log('[CreateLeads] Yards from DB:', rows.length, 'for state:', stateId);
+    } catch (e) {
+      console.error('[CreateLeads] loadYards error:', e);
     }
   };
+
+  const loadAreas = async (cityId: string) => {
+    try {
+      if (!user?.token) return;
+
+      // fetchAreasForCity:
+      //   1. DB mein check karo → agar hai to return (no API)
+      //   2. DB mein nahi hai → API call karo, save karo, return
+      const rows = await fetchAreasForCity(user.token, cityId);
+      setAreas(rows);
+      console.log('[CreateLeads] Areas:', rows.length, 'for city:', cityId);
+
+      if (!rows.length) {
+        ToastAndroid.show('No areas found for this city.', ToastAndroid.SHORT);
+      }
+    } catch (e) {
+      console.error('[CreateLeads] loadAreas error:', e);
+    }
+  };
+
+  // ── Validation ──────────────────────────────────────────────────────────
+
+  const validate = (): boolean => {
+    if (!formData.customer_name.trim()) {
+      ToastAndroid.show('Customer name required', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.customer_mobile.trim() || formData.customer_mobile.length !== 10) {
+      ToastAndroid.show('Valid 10-digit mobile required', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.company_id) {
+      ToastAndroid.show('Please select a company', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.vehicle_type_id) {
+      ToastAndroid.show('Please select vehicle type', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.state_id) {
+      ToastAndroid.show('Please select state', ToastAndroid.SHORT); return false;
+    }
+    return true;
+  };
+
+  // ── Submit ──────────────────────────────────────────────────────────────
 
   const handleSubmit = async () => {
-    // Validate required fields
-    if (!formData.customer_name || !formData.customer_mobile_no) {
-      ToastAndroid.show("Please fill all required fields", ToastAndroid.SHORT);
-      return;
-    }
+    if (!validate()) return;
+    setIsSubmitting(true);
 
-    if (!formData.company_id || !formData.state_id || !formData.city_id) {
-      ToastAndroid.show("Please select company, state, and city", ToastAndroid.LONG);
-      return;
-    }
+    const isRepo = formData.vehicle_type_name.toLowerCase() === 'repo';
+
+    const payload: CreateLeadPayload = {
+      Id: 0,
+      CompanyId: Number(formData.company_id),
+      RegNo: formData.reg_no.toUpperCase(),
+      ProspectNo: formData.prospect_no.toUpperCase(),
+      CustomerName: formData.customer_name.toUpperCase(),
+      CustomerMobileNo: formData.customer_mobile,
+      Vehicle: formData.vehicle_category.toUpperCase(),
+      StateId: Number(formData.state_id),
+      City: !isRepo && formData.city_id ? Number(formData.city_id) : '',
+      Area: !isRepo && formData.area_id ? Number(formData.area_id) : '',
+      Pincode: formData.customer_pin,
+      ManufactureDate: '',
+      ChassisNo: isRepo ? formData.chassis_no.toUpperCase() : '',
+      EngineNo: '',
+      StatusId: 1,
+      ClientCityId: formData.client_city_id ? Number(formData.client_city_id) : '',
+      VehicleType: Number(formData.vehicle_type_id),
+      vehicleCategoryId: 0,
+      VehicleTypeValue: formData.vehicle_type_name.toUpperCase(),
+      YardId: isRepo && formData.yard_id ? Number(formData.yard_id) : 0,
+      AutoAssign: 1,
+    };
 
     try {
-      setIsSubmitting(true);
+      const netState = await NetInfo.fetch();
+      const isOnline = netState.isConnected && netState.isInternetReachable;
 
-      const { leadQueries, syncQueueQueries } = await import("../database");
-      const uuid = `lead-${Date.now()}-${Math.random()}`;
+      if (isOnline && user?.token) {
+        try {
+          const res = await submitCreateLeadApi(user.token, payload);
+          if (res.ERROR === '0') {
+            ToastAndroid.show(res.MESSAGE || 'Lead created!', ToastAndroid.LONG);
+            setFormData({ ...INITIAL_FORM });
+            navigation.goBack();
+            return;
+          }
+          console.warn('[CreateLeads] API error:', res.MESSAGE, '— saving offline');
+        } catch (apiErr) {
+          console.warn('[CreateLeads] API failed — saving offline:', apiErr);
+        }
+      }
 
-      // 1️⃣ SAVE TO DATABASE (IMMEDIATELY - works OFFLINE)
-      await leadQueries.create({
-        id: uuid,
-        customer_name: formData.customer_name,
-        customer_mobile_no: formData.customer_mobile_no,
-        company_id: Number(formData.company_id),
-        state_id: Number(formData.state_id),
-        city_id: Number(formData.city_id),
-        area_id: formData.area_id ? Number(formData.area_id) : 0,
-        yard_id: formData.yard_id ? Number(formData.yard_id) : 0,
-        reg_no: formData.reg_no,
-        vehicle_category: formData.vehicle_category,
-        vehicle_type_id: formData.vehicle_type_id
-          ? Number(formData.vehicle_type_id)
-          : 0,
-        manufacture_date: formData.manufacture_date,
-        chassis_no: formData.chassis_no,
-        engine_no: formData.engine_no,
-        is_synced: 0, // NOT synced yet
-        created_at: new Date().toISOString(),
-      });
-
-      // 2️⃣ ADD TO SYNC QUEUE (for background sync)
-      await syncQueueQueries.add({
-        id: `sync-${Date.now()}`,
-        entity_type: "lead",
-        entity_id: uuid,
-        operation: "create",
-        payload: JSON.stringify(formData),
-        retry_count: 0,
-        created_at: new Date().toISOString(),
-      });
-
+      // Offline ya API fail → pending_leads
+      await run(
+        "INSERT INTO pending_leads (payload, status, retry_count) VALUES (?, 'pending', 0)",
+        [JSON.stringify(payload)]
+      );
       ToastAndroid.show(
-        "Lead created! Will sync when online.",
+        isOnline
+          ? 'Server error. Lead saved — will retry.'
+          : 'Offline. Lead saved — will sync when online.',
         ToastAndroid.LONG
       );
-
-      // 3️⃣ GO BACK TO DASHBOARD
-      setTimeout(() => {
-        navigation.goBack();
-      }, 500);
-    } catch (error) {
-      console.error("[CreateLeads] Submit error:", error);
-      ToastAndroid.show(
-        "Failed to create lead",
-        ToastAndroid.LONG
-      );
+      setFormData({ ...INITIAL_FORM });
+      navigation.goBack();
+    } catch (e: any) {
+      console.error('[CreateLeads] Submit error:', e);
+      ToastAndroid.show('Failed: ' + e.message, ToastAndroid.LONG);
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // ── Render ──────────────────────────────────────────────────────────────
+
   if (isLoading) {
     return (
-      <View style={styles.loader}>
+      <View style={styles.center}>
         <ActivityIndicator size="large" color={COLORS.primary} />
+        <Text style={styles.loadingText}>Loading...</Text>
       </View>
     );
   }
 
-  const getSelectedValue = (key: keyof FormData) => {
-    const value = formData[key];
-    if (!value) return "Select...";
-
-    // Find matching dropdown name
-    if (key === "company_id") {
-      return dropdowns.companies.find((c) => c.id === Number(value))?.name ||
-        "Select...";
-    }
-    if (key === "state_id") {
-      return dropdowns.states.find((s) => s.id === Number(value))?.name ||
-        "Select...";
-    }
-    if (key === "city_id") {
-      return dropdowns.cities.find((c) => c.id === Number(value))?.name ||
-        "Select...";
-    }
-    if (key === "area_id") {
-      return dropdowns.areas.find((a) => a.id === Number(value))?.name ||
-        "Select...";
-    }
-    if (key === "vehicle_type_id") {
-      return dropdowns.vehicleTypes.find((v) => v.id === Number(value))?.name ||
-        "Select...";
-    }
-
-    return value;
-  };
+  const isRepo = formData.vehicle_type_name.toLowerCase() === 'repo';
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <MaterialIcons name="arrow-back" size={24} color="#000" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Create New Lead</Text>
-          <View style={{ width: 24 }} />
-        </View>
+    <>
+      <Layout style={styles.layoutStyle}>
+        {isLoading && (
+          <ActivityIndicator
+            size="small"
+            color={COLORS.AppTheme.primary}
+            style={{ alignSelf: 'center', marginBottom: 10 }}
+          />
+        )}
 
-        {/* Customer Info Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Customer Information</Text>
+        <Selector
+          keyText="Client Name"
+          valueText={formData.company_name}
+          onPress={() => openModal('company', companies, 'Select Company')}
+        />
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Customer Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="John Doe"
-              value={formData.customer_name}
-              onChangeText={(text) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  customer_name: text,
-                }))
-              }
+        <View style={styles.divider} />
+
+        <Selector
+          keyText="Vehicle Type"
+          valueText={formData.vehicle_type_name}
+          onPress={() => openModal('vehicle_type', vehicleTypes, 'Select Vehicle Type')}
+          disabled={!formData.company_id}
+        />
+
+        {vehicleCategories.length > 0 && (
+          <>
+            <View style={styles.divider} />
+            <Selector
+              keyText="Vehicle Category"
+              valueText={formData.vehicle_category}
+              onPress={() => openModal('vehicle_category', vehicleCategories, 'Select Category')}
             />
-          </View>
+          </>
+        )}
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Mobile Number *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="9876543210"
-              keyboardType="numeric"
-              maxLength={10}
-              value={formData.customer_mobile_no}
-              onChangeText={(text) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  customer_mobile_no: text,
-                }))
-              }
-            />
-          </View>
-        </View>
+        <View style={styles.divider} />
 
-        {/* Company & Location Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Company & Location</Text>
+        <Selector
+          keyText="Client City"
+          valueText={formData.client_city_name}
+          onPress={() => openModal('client_city', clientCities, 'Select Client City')}
+        />
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Company *</Text>
-            <TouchableOpacity
-              style={styles.selector}
-              onPress={() =>
-                openModal("company_id", dropdowns.companies, "Select Company")
-              }
-            >
-              <Text style={styles.selectorText}>
-                {getSelectedValue("company_id")}
-              </Text>
-              <MaterialIcons name="expand-more" size={20} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
+        <View style={styles.divider} />
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>State *</Text>
-            <TouchableOpacity
-              style={styles.selector}
-              onPress={() =>
-                openModal("state_id", dropdowns.states, "Select State")
-              }
-            >
-              <Text style={styles.selectorText}>
-                {getSelectedValue("state_id")}
-              </Text>
-              <MaterialIcons name="expand-more" size={20} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
+        <CustomInput
+          placeholder="Registration Number"
+          value={formData.reg_no}
+          maxLength={11}
+          autoCapitalize="characters"
+          onChangeText={value => setField({ reg_no: value.toUpperCase() })}
+        />
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>City *</Text>
-            <TouchableOpacity
-              style={styles.selector}
-              onPress={() =>
-                openModal("city_id", dropdowns.cities, "Select City")
-              }
-            >
-              <Text style={styles.selectorText}>
-                {getSelectedValue("city_id")}
-              </Text>
-              <MaterialIcons name="expand-more" size={20} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Area</Text>
-            <TouchableOpacity
-              style={styles.selector}
-              onPress={() =>
-                openModal("area_id", dropdowns.areas, "Select Area")
-              }
-            >
-              <Text style={styles.selectorText}>
-                {getSelectedValue("area_id")}
-              </Text>
-              <MaterialIcons name="expand-more" size={20} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Vehicle Info Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Vehicle Information</Text>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Registration Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="MH01AB1234"
-              value={formData.reg_no}
-              onChangeText={(text) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  reg_no: text.toUpperCase(),
-                }))
-              }
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Vehicle Type</Text>
-            <TouchableOpacity
-              style={styles.selector}
-              onPress={() =>
-                openModal(
-                  "vehicle_type_id",
-                  dropdowns.vehicleTypes,
-                  "Select Vehicle Type"
-                )
-              }
-              disabled={!formData.company_id}
-            >
-              <Text style={styles.selectorText}>
-                {getSelectedValue("vehicle_type_id")}
-              </Text>
-              <MaterialIcons name="expand-more" size={20} color="#6b7280" />
-            </TouchableOpacity>
-            {!formData.company_id && (
-              <Text style={styles.helperText}>
-                Select company first
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Manufacture Date</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="YYYY-MM-DD"
-              value={formData.manufacture_date}
-              onChangeText={(text) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  manufacture_date: text,
-                }))
-              }
-            />
-          </View>
-
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Chassis Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="CH123456"
+        {isRepo && (
+          <>
+            <View style={styles.spacer} />
+            <CustomInput
+              placeholder="Chassis Number"
               value={formData.chassis_no}
-              onChangeText={(text) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  chassis_no: text.toUpperCase(),
-                }))
-              }
+              autoCapitalize="characters"
+              onChangeText={value => setField({ chassis_no: value.toUpperCase() })}
             />
-          </View>
+          </>
+        )}
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Engine Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="EN789012"
-              value={formData.engine_no}
-              onChangeText={(text) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  engine_no: text.toUpperCase(),
-                }))
-              }
+        <View style={styles.spacer} />
+
+        <CustomInput
+          placeholder="Prospect Number"
+          value={formData.prospect_no}
+          autoCapitalize="characters"
+          onChangeText={value => setField({ prospect_no: value.toUpperCase() })}
+        />
+
+        <View style={styles.spacer} />
+
+        <CustomInput
+          placeholder="Customer Name"
+          value={formData.customer_name}
+          autoCapitalize="words"
+          onChangeText={value => setField({ customer_name: value })}
+        />
+
+        <View style={styles.spacer} />
+
+        <CustomInput
+          isNumeric
+          maxLength={10}
+          placeholder="Customer Mobile Number"
+          value={formData.customer_mobile}
+          onChangeText={value => setField({ customer_mobile: value })}
+        />
+
+        <View style={styles.spacer} />
+
+        <Selector
+          keyText="Customer State"
+          valueText={formData.state_name}
+          onPress={() => openModal('state', states, 'Select State')}
+        />
+
+        <View style={styles.divider} />
+
+        <Selector
+          keyText={isRepo ? 'Yard Name' : 'Customer City'}
+          valueText={isRepo ? formData.yard_name : formData.city_name}
+          onPress={() =>
+            isRepo
+              ? openModal('yard', yards, 'Select Yard')
+              : openModal('city', customerCities, 'Select City')
+          }
+          disabled={!formData.state_id}
+        />
+
+        {!isRepo && (
+          <>
+            <View style={styles.divider} />
+
+            <Selector
+              keyText="Customer Area"
+              valueText={formData.area_name}
+              onPress={() => openModal('area', areas, 'Select Area')}
+              disabled={!formData.city_id}
             />
-          </View>
-        </View>
 
-        {/* Submit Button */}
+            <View style={styles.divider} />
+
+            <CustomInput
+              isNumeric
+              maxLength={6}
+              placeholder="Customer Pincode"
+              value={formData.customer_pin}
+              onChangeText={value => setField({ customer_pin: value })}
+            />
+          </>
+        )}
+
+        <View style={styles.spacer} />
+        <View style={styles.spacer} />
+
         <TouchableOpacity
-          style={[styles.submitButton, isSubmitting && { opacity: 0.6 }]}
+          style={[styles.submitButton, isSubmitting && { opacity: 0.7 }]}
           onPress={handleSubmit}
           disabled={isSubmitting}
+          activeOpacity={0.7}
         >
           <Text style={styles.submitButtonText}>
-            {isSubmitting ? "Creating..." : "Create Lead"}
+            {isSubmitting ? 'Submitting...' : 'Submit'}
           </Text>
         </TouchableOpacity>
-      </ScrollView>
 
-      {/* Modal for selecting dropdown items */}
-      <Modal visible={showModal} transparent animationType="slide">
+        <View style={styles.bottomPadding} />
+      </Layout>
+
+      <Modal
+        visible={showModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowModal(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{modalTitle}</Text>
-              <TouchableOpacity onPress={() => setShowModal(false)}>
-                <MaterialIcons name="close" size={24} color="#000" />
-              </TouchableOpacity>
-            </View>
-
             <TextInput
               style={styles.searchInput}
-              placeholder="Search..."
+              placeholder={modalTitle || 'Search'}
+              placeholderTextColor="#999"
               value={filterText}
               onChangeText={setFilterText}
-              placeholderTextColor="#9ca3af"
             />
-
             <FlatList
-              data={filteredModalData}
-              keyExtractor={(item) => String(item.id)}
+              data={filteredItems}
+              keyExtractor={item => item.id}
               renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.modalItem}
-                  onPress={() => selectValue(item)}
-                >
-                  <Text style={styles.modalItemText}>{item.name}</Text>
+                <TouchableOpacity style={styles.listItem} onPress={() => onSelect(item)}>
+                  <Text style={styles.listItemText}>{item.name}</Text>
                 </TouchableOpacity>
               )}
-              scrollEnabled={true}
+              ListEmptyComponent={<Text style={styles.empty}>No results</Text>}
             />
+
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => setShowModal(false)}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
+    </>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUB-COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface CustomInputProps {
+  isNumeric?: boolean;
+  maxLength?: number;
+  placeholder: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+}
+
+const CustomInput = ({
+  isNumeric,
+  maxLength,
+  placeholder,
+  value,
+  onChangeText,
+  autoCapitalize = 'none',
+}: CustomInputProps) => {
+  return (
+    <TextInput
+      style={styles.textInput}
+      placeholder={placeholder}
+      placeholderTextColor="#999"
+      value={value}
+      onChangeText={onChangeText}
+      keyboardType={isNumeric ? 'numeric' : 'default'}
+      maxLength={maxLength}
+      autoCapitalize={autoCapitalize}
+    />
+  );
+};
+
+interface SelectorProps {
+  keyText: string;
+  valueText: string;
+  onPress: () => void;
+  disabled?: boolean;
+}
+
+const Selector = ({ keyText, valueText, onPress, disabled }: SelectorProps) => {
+  return (
+    <TouchableOpacity
+      style={[styles.selectorContainer, disabled && styles.disabledSelector]}
+      onPress={onPress}
+      disabled={disabled}
+    >
+      <Text style={styles.selectorLabel}>{keyText}</Text>
+      <Text style={styles.selectorValue}>{valueText || 'Select...'}</Text>
+    </TouchableOpacity>
+  );
+};
+
+interface LayoutProps {
+  children: React.ReactNode;
+  style?: any;
+}
+
+const Layout = ({ children, style }: LayoutProps) => {
+  return (
+    <SafeAreaView style={[styles.layoutContainer, style]}>
+      <ScrollView
+        contentContainerStyle={styles.layoutContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
-export default CreateLeads;
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: {
+  layoutStyle: {
+    backgroundColor: 'white',
+    position: 'relative',
+  },
+  layoutContainer: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: '#fff',
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 100,
+  layoutContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 15,
   },
-  loader: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#000",
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#000",
-    marginBottom: 12,
-  },
-  formGroup: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#000",
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#d1d5db",
+  selectorContainer: {
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+    backgroundColor: COLORS.Dashboard.bg.Grey,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: "#000",
+    marginVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  selector: {
-    borderWidth: 1,
-    borderColor: "#d1d5db",
+  disabledSelector: {
+    opacity: 0.6,
+  },
+  selectorLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.AppTheme.primary,
+  },
+  selectorValue: {
+    fontSize: 14,
+    color: '#666',
+    textTransform: 'capitalize',
+    maxWidth: '60%',
+  },
+  textInput: {
+    height: 50,
+    backgroundColor: COLORS.Dashboard.bg.Grey,
     borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  selectorText: {
+    paddingHorizontal: 15,
     fontSize: 14,
-    color: "#000",
+    color: '#000',
+    marginVertical: 8,
   },
-  helperText: {
-    fontSize: 12,
-    color: "#6b7280",
-    marginTop: 4,
+  divider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 8,
+  },
+  spacer: {
+    height: 8,
+  },
+  bottomPadding: {
+    height: 80,
   },
   submitButton: {
-    backgroundColor: "#FF6B35",
-    borderRadius: 8,
+    backgroundColor: COLORS.AppTheme.primary,
     paddingVertical: 14,
-    alignItems: "center",
-    marginBottom: 24,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginVertical: 16,
   },
   submitButtonText: {
-    color: "#fff",
+    color: '#fff',
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    justifyContent: "flex-end",
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    maxHeight: "80%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#000",
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    minHeight: '50%',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 20,
   },
   searchInput: {
-    borderWidth: 1,
-    borderColor: "#d1d5db",
+    height: 50,
+    backgroundColor: COLORS.Dashboard.bg.Grey,
     borderRadius: 8,
-    margin: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 15,
     fontSize: 14,
+    color: '#000',
+    marginBottom: 20,
   },
-  modalItem: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+  listItem: {
+    paddingVertical: 15,
+    paddingHorizontal: 15,
     borderBottomWidth: 1,
-    borderBottomColor: "#e5e7eb",
+    borderBottomColor: '#f0f0f0',
   },
-  modalItemText: {
+  listItemText: {
     fontSize: 14,
-    color: "#000",
+    color: COLORS.AppTheme.primary,
+    textTransform: 'capitalize',
+    textAlign: 'center',
+  },
+  closeButton: {
+    backgroundColor: COLORS.AppTheme.primary,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  closeButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    color: '#6b7280',
+    fontSize: 14,
+  },
+  empty: {
+    textAlign: 'center',
+    padding: 24,
+    color: '#9ca3af',
   },
 });
+
+export default CreateLeads;

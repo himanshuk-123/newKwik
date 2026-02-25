@@ -13,12 +13,13 @@ import React, { useState } from "react";
 import { COLORS } from "../constants/Colors";
 import { HeroImg } from "../assets";
 import {useNavigation} from '@react-navigation/native';
-import { useAuthStore } from "../features/auth/auth.store";
+import { useAppStore } from "../store/AppStore";
+import { LoginRequest } from "../types/api";
 type Props = {};
 
 const LoginPage = (props: Props) => {
   const navigation = useNavigation<any>();
-  const { login, isLoading } = useAuthStore();
+  const { loginUser, isLoading } = useAppStore();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -46,7 +47,15 @@ const LoginPage = (props: Props) => {
     }
 
     try {
-      await login(username, password);
+      const credentials: LoginRequest = {
+        UserName: username,
+        Pass: password,
+        IMEI: 'unknown',
+        Version: '6',
+        IP: '',
+        Location: null,
+      };
+      await loginUser(credentials);
       // Navigation is handled automatically by RootNavigator listening to auth state
       ToastAndroid.show("Login Successful", ToastAndroid.SHORT);
     } catch (error: any) {

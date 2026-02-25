@@ -1,48 +1,31 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { useAuthStore } from "../features/auth/auth.store";
+import { useAppStore } from "../store/AppStore";
 import LoginPage from "../pages/LoginPage";
 import DashboardPage from "../pages/DashboardPage";
 import CreateLeadsPage from "../pages/CreateLeadsPage";
 
 const Stack = createNativeStackNavigator();
 
-/**
- * Root Navigation
- * 
- * LOGIC:
- * - If user is logged in → show Dashboard + CreateLeads
- * - If user is NOT logged in → show Login
- * - Auth state is persisted in AsyncStorage + Database
- */
-
 export const RootNavigator = () => {
-  const { user } = useAuthStore();
+  const { isAppReady, isAuthenticated } = useAppStore();
+
+  // DB check ho raha hai — kuch mat dikhao
+  if (!isAppReady) return null; // ✅ Jab tak DB check nahi hua, kuch mat dikhao
 
   return (
     <NavigationContainer>
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          animationEnabled: true,
-        }}
-      >
-        {!user ? (
-          // Auth Stack (Login)
-          <Stack.Screen name="Login" component={LoginPage} />
-        ) : (
-          // App Stack (Dashboard, CreateLeads)
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        {isAuthenticated ? (
+          // Logged in → sirf ye screens dikhao
           <>
             <Stack.Screen name="Dashboard" component={DashboardPage} />
-            <Stack.Screen
-              name="CreateLeads"
-              component={CreateLeadsPage}
-              options={{
-                animationEnabled: true,
-              }}
-            />
+            <Stack.Screen name="CreateLeads" component={CreateLeadsPage} />
           </>
+        ) : (
+          // Logged out → sirf Login dikhao
+          <Stack.Screen name="Login" component={LoginPage} />
         )}
       </Stack.Navigator>
     </NavigationContainer>
