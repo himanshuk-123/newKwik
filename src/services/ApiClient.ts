@@ -4,7 +4,7 @@
 
 import axios from 'axios';
 
-const BASE_URL = 'https://uat.kwikcheck.in/App/webservice';
+const BASE_URL = 'https://inspection.kwikcheck.in/App/webservice';
 const APP_VERSION = '6';
 
 const apiCall = async <T>(

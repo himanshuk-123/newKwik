@@ -7,16 +7,21 @@ let initPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 SQLite.DEBUG(__DEV__);
 SQLite.enablePromise(true);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MIGRATIONS — Schema changes ke liye
+// version: 7 REMOVED — cities already has state_id in schema
+// ─────────────────────────────────────────────────────────────────────────────
+
 const MIGRATIONS: { version: number; sql: string }[] = [
-  { version: 1, sql: `ALTER TABLE vehicle_types ADD COLUMN vehicle_categories TEXT` },
-  { version: 2, sql: `ALTER TABLE yards ADD COLUMN city_id TEXT` },
-  { version: 3, sql: `ALTER TABLE yards ADD COLUMN state_name TEXT` },
-  { version: 4, sql: `ALTER TABLE yards ADD COLUMN city_name TEXT` },
-  { version: 5, sql: `ALTER TABLE yards ADD COLUMN status TEXT DEFAULT 'Active'` },
-  { version: 6, sql: `ALTER TABLE areas ADD COLUMN city_name TEXT` },
-  { version: 7, sql: `ALTER TABLE cities ADD COLUMN state_id TEXT` },
-  { version: 8, sql: `ALTER TABLE companies ADD COLUMN type_name TEXT` },
-  { version: 9, sql: `ALTER TABLE companies ADD COLUMN state_name TEXT` },
+  { version: 1,  sql: `ALTER TABLE vehicle_types ADD COLUMN vehicle_categories TEXT` },
+  { version: 2,  sql: `ALTER TABLE yards ADD COLUMN city_id TEXT` },
+  { version: 3,  sql: `ALTER TABLE yards ADD COLUMN state_name TEXT` },
+  { version: 4,  sql: `ALTER TABLE yards ADD COLUMN city_name TEXT` },
+  { version: 5,  sql: `ALTER TABLE yards ADD COLUMN status TEXT DEFAULT 'Active'` },
+  { version: 6,  sql: `ALTER TABLE areas ADD COLUMN city_name TEXT` },
+  // version 7 REMOVED: cities.state_id already in schema — caused duplicate column crash
+  { version: 8,  sql: `ALTER TABLE companies ADD COLUMN type_name TEXT` },
+  { version: 9,  sql: `ALTER TABLE companies ADD COLUMN state_name TEXT` },
   { version: 10, sql: `ALTER TABLE companies ADD COLUMN city_name TEXT` },
   { version: 11, sql: `ALTER TABLE companies ADD COLUMN status TEXT DEFAULT 'Active'` },
   { version: 12, sql: `DROP TABLE IF EXISTS leads` },
@@ -45,10 +50,6 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ` },
-
-  // ── v15: Offline image upload queue ───────────────────────────────────────
-  // Har captured image store hoti hai yahan jab tak upload na ho
-  // UNIQUE(lead_id, side) — retake = overwrite (INSERT OR REPLACE)
   { version: 15, sql: `
     CREATE TABLE IF NOT EXISTS image_captures (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -89,6 +90,7 @@ const runMigrations = async (): Promise<void> => {
     } catch (e: any) {
       if (e?.message?.includes('duplicate column')) {
         await run('INSERT OR IGNORE INTO db_migrations (version) VALUES (?)', [migration.version]);
+        console.log(`[DB] Migration v${migration.version} skipped (duplicate column).`);
       } else {
         console.error(`[DB] Migration v${migration.version} failed:`, e);
       }
@@ -133,6 +135,10 @@ export const closeDb = async (): Promise<void> => {
   if (db) { await db.close(); db = null; }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE DB OPERATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const select = async <T = any>(sql: string, params: any[] = []): Promise<T[]> => {
   const result = await getDb().executeSql(sql, params);
   const rows: T[] = [];
@@ -142,11 +148,18 @@ export const select = async <T = any>(sql: string, params: any[] = []): Promise<
   return rows;
 };
 
-export const run = async (sql: string, params: any[] = []): Promise<{ rowsAffected: number; insertId?: number }> => {
+export const run = async (
+  sql: string,
+  params: any[] = []
+): Promise<{ rowsAffected: number; insertId?: number }> => {
   const result = await getDb().executeSql(sql, params);
   return { rowsAffected: result[0].rowsAffected, insertId: result[0].insertId };
 };
 
+/**
+ * runBatch — ek SQL, bahut saare rows, EK transaction mein
+ * 800 yards = 1 transaction (pehle 800 alag calls thi)
+ */
 export const runBatch = async (sql: string, paramsList: any[][]): Promise<void> => {
   if (!paramsList.length) return;
   return new Promise((resolve, reject) => {

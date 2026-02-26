@@ -1,14 +1,7 @@
 /**
- * SyncService
- *
- * Login sync:
- *   States/Cities  → constants (0 API)
- *   Dashboard      → 1 API
- *   Companies      → 1 API
- *   Yards          → 37 API (har state)
- *   Vehicle Types  → N API (har company)
- *   Leads          → 1 API (LeadListStatuswise, all vehicles)
- *   Areas          → on-demand only (city select par)
+ * SyncService — OPTIMIZED
+ * Login ke baad sab data sync hota hai DB mein
+ * StatusId: 0 = sab leads (fix: pehle 3 hardcoded tha)
  */
 
 import { run, select, runBatch } from '../database/db';
@@ -36,15 +29,12 @@ export const syncAllData = async (token: string, userId: string): Promise<void> 
     syncDashboard(token, userId),
     syncCompanies(token),
     syncYards(token),
-    syncLeads(token),
+    syncLeads(token),       // ✅ Fix: StatusId 0 = sab leads
   ]);
 
   console.log('[SYNC] Critical sync done.');
   await syncAllVehicleTypes(token);
-  
-  // App Steps sync - leads ke baad karo (vehicle_type_value chahiye)
   await syncAppStepsForAllVehicleTypes(token);
-  
   console.log('[SYNC] All done.');
 };
 
@@ -76,8 +66,7 @@ const syncStatesAndCities = async (): Promise<void> => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AREAS — On-demand (city select par fetch)
-// DB check → miss hone par API → save to DB
+// AREAS — On-demand (city select par fetch, DB cache)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const fetchAreasForCity = async (
@@ -89,12 +78,8 @@ export const fetchAreasForCity = async (
       'SELECT id, name FROM areas WHERE city_id = ? ORDER BY name',
       [cityId]
     );
-    if (cached.length > 0) {
-      console.log(`[AREAS] City ${cityId}: ${cached.length} from DB`);
-      return cached;
-    }
+    if (cached.length > 0) return cached;
 
-    console.log(`[AREAS] City ${cityId}: fetching from API...`);
     const res = await fetchCityAreaListApi(token, cityId);
     if (res.Error !== '0' || !res.DataRecord?.length) return [];
 
@@ -102,7 +87,6 @@ export const fetchAreasForCity = async (
       'INSERT OR REPLACE INTO areas (id, name, pincode, city_id, city_name) VALUES (?, ?, ?, ?, ?)',
       res.DataRecord.map(a => [String(a.id), a.name, a.pincode ?? '', cityId, a.cityname ?? ''])
     );
-    console.log(`[AREAS] City ${cityId}: ${res.DataRecord.length} saved`);
     return res.DataRecord.map(a => ({ id: String(a.id), name: a.name }));
   } catch (e) {
     console.error(`[AREAS] City ${cityId} failed:`, e);
@@ -148,10 +132,12 @@ const syncCompanies = async (token: string): Promise<void> => {
   try {
     const res = await fetchClientCompanyListApi(token);
     if (res.Error !== '0' || !res.DataRecord?.length) return;
-    await run('DELETE FROM companies', []);
+    await run('DELETE FROM companies');
     await runBatch(
       'INSERT OR REPLACE INTO companies (id, name, type_name, state_name, city_name, status) VALUES (?, ?, ?, ?, ?, ?)',
-      res.DataRecord.map(c => [String(c.id), c.name, c.TypeName ?? '', c.StateName ?? '', c.CityName ?? '', c.Status ?? 'Active'])
+      res.DataRecord.map(c => [
+        String(c.id), c.name, c.TypeName ?? '', c.StateName ?? '', c.CityName ?? '', c.Status ?? 'Active'
+      ])
     );
     await updateSyncMeta('companies');
     console.log(`[SYNC] Companies done: ${res.DataRecord.length}`);
@@ -168,7 +154,7 @@ const syncAllVehicleTypes = async (token: string): Promise<void> => {
   try {
     const companies = await select<{ id: string }>('SELECT id FROM companies');
     if (!companies.length) return;
-    await run('DELETE FROM vehicle_types', []);
+    await run('DELETE FROM vehicle_types');
 
     const results = await Promise.allSettled(
       companies.map(async c => {
@@ -202,7 +188,7 @@ const syncAllVehicleTypes = async (token: string): Promise<void> => {
 const syncYards = async (token: string): Promise<void> => {
   try {
     const allStates = STATE_CITY_LIST.STATE_LIST.CircleList;
-    await run('DELETE FROM yards', []);
+    await run('DELETE FROM yards');
 
     const results = await Promise.allSettled(
       allStates.map(async state => {
@@ -234,20 +220,18 @@ const syncYards = async (token: string): Promise<void> => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEADS — LeadListStatuswise (actual fields from confirmed API response)
-// TotalCount: 545 — sab fetch karne ke liye pageSize bada rakho
+// LEADS — ✅ FIX: StatusId: 0 = sab leads (pehle 3 tha)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const syncLeads = async (token: string): Promise<void> => {
   try {
-    // Sab leads ek baar mein fetch karo (TotalCount 545 tha)
-    const res = await fetchLeadListStatuswiseApi(token,{ StatusId: 3});
+    const res = await fetchLeadListStatuswiseApi(token, { StatusId: 0 }); // ✅ 0 = ALL leads
     if (res.Error !== '0' || !res.DataRecord?.length) {
-      console.log('[SYNC] Leads: no data or error');
+      console.log('[SYNC] Leads: no data or error, response:', res.Error, res.MESSAGE);
       return;
     }
 
-    await run('DELETE FROM leads', []);
+    await run('DELETE FROM leads');
 
     await runBatch(
       `INSERT OR REPLACE INTO leads (
@@ -286,17 +270,17 @@ const syncLeads = async (token: string): Promise<void> => {
         l.CustomerName?.trim() ?? '',
         l.CustomerMobileNo ?? '',
         String(l.CompanyId ?? ''),
-        l.companyname ?? '',                    // lowercase field
+        l.companyname ?? '',
         l.Vehicle ?? '',
         String(l.VehicleType ?? ''),
-        l.LeadTypeName ?? '',                   // "Retail","Repo","KAST"
+        l.LeadTypeName ?? '',
         l.VehicleTypeValue ?? '',
         String(l.StateId ?? ''),
-        l.statename ?? '',                      // lowercase
+        l.statename ?? '',
         String(l.City ?? ''),
-        l.cityname ?? '',                       // lowercase
+        l.cityname ?? '',
         String(l.Area ?? ''),
-        l.areaname ?? '',                       // lowercase
+        l.areaname ?? '',
         String(l.ClientCityId ?? ''),
         l.Clientcityname ?? '',
         l.Pincode ?? '',
@@ -329,7 +313,45 @@ const syncLeads = async (token: string): Promise<void> => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PENDING LEADS SYNC
+// APP STEPS SYNC
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const syncAppStepsForAllVehicleTypes = async (token: string): Promise<void> => {
+  try {
+    const allLeads = await select<{ id: string; vehicle_type_value: string }>(
+      'SELECT id, vehicle_type_value FROM leads WHERE vehicle_type_value IS NOT NULL AND vehicle_type_value != ""'
+    );
+    if (!allLeads.length) return;
+
+    const vehicleTypeMap = new Map<string, string>();
+    for (const lead of allLeads) {
+      if (!vehicleTypeMap.has(lead.vehicle_type_value)) {
+        vehicleTypeMap.set(lead.vehicle_type_value, lead.id);
+      }
+    }
+
+    for (const [vehicleType, sampleLeadId] of vehicleTypeMap.entries()) {
+      try {
+        const res = await fetchAppStepListApi(token, sampleLeadId);
+        if (res.ERROR !== '0' || !res.DataList) continue;
+        await run(
+          `INSERT OR REPLACE INTO app_steps (vehicle_type, steps_data, synced_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+          [vehicleType, JSON.stringify(res.DataList)]
+        );
+        console.log(`[SYNC] App Steps cached for ${vehicleType}: ${res.DataList.length} steps`);
+      } catch (e) {
+        console.error(`[SYNC] App Steps failed for ${vehicleType}:`, e);
+      }
+    }
+
+    await updateSyncMeta('app_steps');
+  } catch (e) {
+    console.error('[SYNC] App Steps failed:', e);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PENDING LEADS SYNC — Online aane par call karo
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const syncPendingLeads = async (
@@ -338,9 +360,10 @@ export const syncPendingLeads = async (
 ): Promise<void> => {
   try {
     const pending = await select<{ id: number; payload: string; retry_count: number }>(
-      "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 3", []
+      "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 3"
     );
     if (!pending.length) return;
+    console.log(`[SYNC] Pending leads: ${pending.length}`);
 
     for (const lead of pending) {
       try {
@@ -364,71 +387,12 @@ export const syncPendingLeads = async (
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// APP STEPS SYNC — Valuation steps caching by vehicle type
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const syncAppStepsForAllVehicleTypes = async (token: string): Promise<void> => {
-  try {
-    console.log('[SYNC] App Steps starting...');
-    
-    // Sab leads fetch karo database se
-    const allLeads = await select<{ id: string; vehicle_type_value: string }>(
-      'SELECT id, vehicle_type_value FROM leads WHERE vehicle_type_value IS NOT NULL AND vehicle_type_value != ""'
-    );
-
-    if (allLeads.length === 0) {
-      console.log('[SYNC] No leads found, skipping app steps sync');
-      return;
-    }
-
-    // Group by vehicle type aur ek sample leadId lo har type ke liye
-    const vehicleTypeMap = new Map<string, string>();
-    for (const lead of allLeads) {
-      if (!vehicleTypeMap.has(lead.vehicle_type_value)) {
-        vehicleTypeMap.set(lead.vehicle_type_value, lead.id);
-      }
-    }
-
-    console.log(`[SYNC] Found ${vehicleTypeMap.size} unique vehicle types:`, Array.from(vehicleTypeMap.keys()));
-
-    // Har vehicle type ke liye API call karo
-    for (const [vehicleType, sampleLeadId] of vehicleTypeMap.entries()) {
-      try {
-        const res = await fetchAppStepListApi(token, sampleLeadId);
-        
-        if (res.ERROR !== '0' || !res.DataList) {
-          console.warn(`[SYNC] App Steps API failed for ${vehicleType}:`, res.MESSAGE);
-          continue;
-        }
-
-        // Database mein cache karo (REPLACE strategy)
-        await run(
-          `INSERT OR REPLACE INTO app_steps (vehicle_type, steps_data, synced_at)
-           VALUES (?, ?, CURRENT_TIMESTAMP)`,
-          [vehicleType, JSON.stringify(res.DataList)]
-        );
-
-        console.log(`[SYNC] App Steps cached for ${vehicleType}: ${res.DataList.length} steps`);
-      } catch (e) {
-        console.error(`[SYNC] App Steps failed for ${vehicleType}:`, e);
-      }
-    }
-
-    await updateSyncMeta('app_steps');
-    console.log('[SYNC] App Steps done');
-  } catch (e) {
-    console.error('[SYNC] App Steps failed:', e);
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // HELPER
 // ─────────────────────────────────────────────────────────────────────────────
 
 const updateSyncMeta = async (apiName: string): Promise<void> => {
   await run(
-    `INSERT OR REPLACE INTO sync_meta (api_name, last_synced_at, status)
-     VALUES (?, CURRENT_TIMESTAMP, 'synced')`,
+    `INSERT OR REPLACE INTO sync_meta (api_name, last_synced_at, status) VALUES (?, CURRENT_TIMESTAMP, 'synced')`,
     [apiName]
   );
 };
