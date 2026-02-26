@@ -5,10 +5,11 @@ import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAppStore } from './src/store/AppStore';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { SyncManager } from './src/services/Syncmanager';
 import 'react-native-reanimated';
 
 const App = () => {
-  const { loadStoredUser, isAppReady } = useAppStore();
+  const { loadStoredUser, isAppReady, user } = useAppStore();
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -23,6 +24,18 @@ const App = () => {
     };
     bootstrap();
   }, []);
+
+  // ✅ SyncManager init karo jab user load ho jaaye
+  useEffect(() => {
+    if (user?.token) {
+      SyncManager.init(user.token);
+      console.log('[App] SyncManager initialized with user token');
+    }
+    return () => {
+      // Cleanup on unmount
+      SyncManager.destroy();
+    };
+  }, [user]);
 
   // ✅ FIX: Don't render navigator until DB is ready + user check is done
   // Without this: navigator renders with isAuthenticated = false even for logged-in users

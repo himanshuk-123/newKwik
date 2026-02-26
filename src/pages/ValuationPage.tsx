@@ -38,6 +38,7 @@ import { submitLeadReportApi } from "./api/valuation.api";
 import useQuestions from "../services/useQuestions";
 import { Lead } from "../types/leads";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import RNFS from 'react-native-fs';
 // import UploadQueueStatus from "../components/UploadQueueStatus"; // Disabled for offline mode
 import { uploadQueueManager } from "../services/uploadQueue.manager";
 import {
@@ -511,11 +512,15 @@ const ValuateCard = ({
   const navigation = useNavigation();
 
   const HandleClick = () => {
+    console.log('[Card] Click:', { side: text, isClickable, isDone: !!isDone });
+    
     if (!isClickable && !isDone) {
       ToastAndroid.show("Please complete previous steps first", ToastAndroid.SHORT);
       return;
     }
+    
     // Navigate to CustomCamera with appColumn for dynamic API param naming
+    console.log('[Card] ✅ Opening camera for:', text, isDone ? '(RETAKE)' : '(NEW)');
     // @ts-ignore
     navigation.navigate("Camera", {
       id: id,
@@ -539,11 +544,18 @@ const ValuateCard = ({
       {isUploading ? (
         <RNText style={styles.uploadingText}>Uploading...</RNText>
       ) : isDone ? (
-        <Image
-          style={styles.cardImage}
-          source={{ uri: isDone }}
-          resizeMode="cover"
-        />
+        <>
+          <Image
+            style={styles.cardImage}
+            source={{ uri: isDone }}
+            resizeMode="cover"
+          />
+          {/* Retake indicator */}
+          <View style={styles.retakeIndicator}>
+            <MaterialCommunityIcons name="camera-retake" size={16} color="#fff" />
+            <RNText style={styles.retakeText}>Retake</RNText>
+          </View>
+        </>
       ) : uploadStatus === 'uploaded' ? (
         // Show checkmark when uploaded but file is gone (cache cleared)
         <View style={styles.capturedContainer}>
@@ -625,31 +637,62 @@ const ValuationPage = () => {
     if (!leadId) return;
     try {
       const captured = await getCapturedMediaByLeadId(leadId.toString());
-      if (captured.length === 0) return;
+      if (captured.length === 0) {
+        console.log('[ValuationPage] No captured media found for lead:', leadId);
+        return;
+      }
 
       const statusMap: Record<string, 'pending' | 'uploaded' | 'failed'> = {};
+      let validCount = 0;
+      let missingCount = 0;
 
-      captured.forEach((item) => {
+      // ✅ FIRST: Mark ALL loaded sides as processed to prevent modals
+      // This must happen BEFORE calling markLocalCaptured
+      for (const item of captured) {
         if (item.side && item.localUri) {
-          // ✅ FIX: Only mark as processed if already uploaded (from previous session)
-          // Don't mark newly captured sides (pending) as processed - they need to show modal
-          if (item.uploadStatus === 'uploaded') {
+          const filePath = item.localUri.replace('file://', '');
+          const fileExists = await RNFS.exists(filePath);
+          
+          if (fileExists) {
+            // Mark as processed so modal doesn't open for old captures
             processedSidesRef.current[item.side] = true;
           }
-          markLocalCaptured(item.side, item.localUri);
         }
-        // Track uploadStatus for each side
-        if (item.side) {
-          statusMap[item.side] = item.uploadStatus;
+      }
+
+      console.log('[ValuationPage] 🔒 Pre-marked sides as processed:', Object.keys(processedSidesRef.current));
+
+      // THEN: Update store and status map
+      for (const item of captured) {
+        if (item.side && item.localUri) {
+          const filePath = item.localUri.replace('file://', '');
+          const fileExists = await RNFS.exists(filePath);
+          
+          if (fileExists) {
+            // ✅ File exists - mark as captured in store
+            validCount++;
+            markLocalCaptured(item.side, item.localUri);
+            
+            // Track uploadStatus for each side
+            statusMap[item.side] = item.uploadStatus;
+          } else {
+            // ❌ File missing - don't mark as captured
+            missingCount++;
+            console.warn('[ValuationPage] File missing for side:', item.side, 'path:', item.localUri);
+          }
         }
-      });
+      }
 
       setSideUploadStatus(statusMap);
       
-      console.log('[ValuationPage] Loaded captured media:', {
+      console.log('[ValuationPage] ✅ Loaded captured media:', {
+        leadId,
         total: captured.length,
+        valid: validCount,
+        missing: missingCount,
         uploaded: captured.filter(c => c.uploadStatus === 'uploaded').length,
         pending: captured.filter(c => c.uploadStatus === 'pending').length,
+        sides: Object.keys(statusMap),
         processedSides: Object.keys(processedSidesRef.current),
       });
     } catch (error) {
@@ -680,11 +723,10 @@ const ValuationPage = () => {
 
   // Watch for uploaded sides from store and show condition modal
   useEffect(() => {
-    console.log('[ValuationPage] Modal useEffect triggered:', {
+    console.log('[ValuationPage] 🎯 Modal useEffect triggered:', {
       sideUploadsLength: sideUploads?.length,
-      sideUploads: sideUploads?.map(s => ({ side: s.side, status: s.status })),
       lastProcessedSide,
-      processedSides: Object.keys(processedSidesRef.current),
+      processedSidesCount: Object.keys(processedSidesRef.current).length,
     });
 
     // If any new sides are uploaded (from Camera component), show modal
@@ -692,13 +734,14 @@ const ValuationPage = () => {
       // Get the last uploaded side
       const lastUploadedSide = sideUploads[sideUploads.length - 1];
 
-      console.log('[ValuationPage] Checking last uploaded side:', {
+      const isAlreadyProcessed = processedSidesRef.current[lastUploadedSide?.side];
+      const isDifferentFromLast = lastUploadedSide?.side !== lastProcessedSide;
+
+      console.log('[ValuationPage] 🔍 Checking last uploaded side:', {
         side: lastUploadedSide?.side,
-        isNewSide: lastUploadedSide?.side !== lastProcessedSide,
-        isNotProcessed: !processedSidesRef.current[lastUploadedSide?.side],
-        canProcess: lastUploadedSide && 
-                    lastUploadedSide.side !== lastProcessedSide && 
-                    !processedSidesRef.current[lastUploadedSide.side],
+        isDifferentFromLast,
+        isAlreadyProcessed,
+        shouldShowModal: lastUploadedSide && isDifferentFromLast && !isAlreadyProcessed,
       });
 
       // Only process if this is a NEW side (not already processed)
@@ -713,7 +756,7 @@ const ValuationPage = () => {
         // Find matching step using normalized names
         const stepData = steps.find(s => normalizeName(s.Name) === normalizedSide);
 
-        console.log('[ValuationPage] Image captured for side:', {
+        console.log('[ValuationPage] 📸 NEW image captured for side:', {
           side: lastUploadedSide.side,
           found: !!stepData,
           stepName: stepData?.Name,
@@ -734,7 +777,7 @@ const ValuationPage = () => {
 
         // ✅ UPDATED: ALWAYS show modal for captured images, even if no questions
         if (stepData) {
-          console.log('[ValuationPage] Opening modal for:', lastUploadedSide.side, {
+          console.log('[ValuationPage] ✅ Opening modal for:', lastUploadedSide.side, {
             hasQuestions,
             questionsCount: Array.isArray(questionData?.Questions) ? questionData.Questions.length : 0,
           });
@@ -750,6 +793,8 @@ const ValuationPage = () => {
           processedSidesRef.current[lastUploadedSide.side] = true;
           setLastProcessedSide(lastUploadedSide.side);
         }
+      } else if (isAlreadyProcessed) {
+        console.log('[ValuationPage] ⏭️  Skipping modal - side already processed:', lastUploadedSide?.side);
       }
     }
   }, [sideUploads?.length, steps, getSideQuestion, vehicleType, lastProcessedSide]);
@@ -1194,6 +1239,23 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#4CAF50",
     textAlign: "center",
+  },
+  retakeIndicator: {
+    position: 'absolute',
+    bottom: 30,
+    right: 8,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  retakeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
   },
   infoRecordContainer: {
     width: "100%",

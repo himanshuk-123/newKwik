@@ -47,6 +47,7 @@ type Props = {
   vehicleType: string;
   onValuateClick: () => void;
   onAppointmentClick: () => void;
+  pendingImagesCount?: number;
 };
 type CardTileProps = { textPrimary: string; textSecondary: string };
 
@@ -231,6 +232,20 @@ const SingleCard = (props: Props) => {
           </View>
         </View>
       )}
+
+      {/* PENDING IMAGES BADGE */}
+      {props.pendingImagesCount !== undefined && props.pendingImagesCount > 0 && (
+        <View style={styles.pendingBadge}>
+          <Text style={styles.pendingBadgeText}>{props.pendingImagesCount}</Text>
+        </View>
+      )}
+
+      {/* PENDING IMAGES BADGE */}
+      {props.pendingImagesCount !== undefined && props.pendingImagesCount > 0 && (
+        <View style={styles.pendingBadge}>
+          <Text style={styles.pendingBadgeText}>{props.pendingImagesCount}</Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -397,5 +412,21 @@ const cardTile = StyleSheet.create({
     top: 13,
     right: 0,
     borderRadius: 75,
+  },
+  pendingBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 60,
+    backgroundColor: '#ff9800',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pendingBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

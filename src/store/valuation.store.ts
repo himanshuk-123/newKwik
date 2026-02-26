@@ -77,13 +77,21 @@ export const useValuationStore = create<ValuationState>((set, get) => ({
     }
   },
 
-  /* ===================== LOCAL CAPTURE (Disabled for now) ===================== */
+  /* ===================== LOCAL CAPTURE ===================== */
   markLocalCaptured: (side, localUri) => {
-    console.log('[ValuationStore] markLocalCaptured:', { side, localUri });
-    // Feature disabled - will enable later with image/video upload
+    const currentState = get().sideUploads;
+    const existingIndex = currentState.findIndex(s => s.side === side);
+    
+    console.log('[ValuationStore] 📸 markLocalCaptured:', {
+      side,
+      localUri: localUri.substring(0, 50) + '...',
+      action: existingIndex !== -1 ? 'UPDATE' : 'ADD',
+      currentCount: currentState.length,
+    });
+    
     set(state => {
-      const existingIndex = state.sideUploads.findIndex(s => s.side === side);
       if (existingIndex !== -1) {
+        // Update existing entry
         const updatedItem = {
           ...state.sideUploads[existingIndex],
           localUri,
@@ -94,14 +102,17 @@ export const useValuationStore = create<ValuationState>((set, get) => ({
           ...state.sideUploads.slice(existingIndex + 1),
           updatedItem,
         ];
+        console.log('[ValuationStore] ✅ Updated side capture, total:', newUploads.length);
         return { sideUploads: newUploads };
       }
-      return {
-        sideUploads: [
-          ...state.sideUploads,
-          { side, localUri, status: 'pending' },
-        ],
-      };
+      
+      // Add new entry
+      const newUploads = [
+        ...state.sideUploads,
+        { side, localUri, status: 'pending' },
+      ];
+      console.log('[ValuationStore] ✅ Added new side capture, total:', newUploads.length);
+      return { sideUploads: newUploads };
     });
   },
 

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { StoredUser, login, logout, getStoredUser } from '../services/AuthService';
 import { getDashboard } from '../services/DashboardService';
+import { SyncManager } from '../services/Syncmanager';
 import { DashboardRecord, LoginRequest } from '../types/api';
 
 interface AppState {
@@ -64,8 +65,19 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   /** Logout → sab clear */
   logoutUser: async () => {
+    console.log('[STORE] Logout initiated...');
+    
+    // 1. Destroy SyncManager (stop background upload listener)
+    SyncManager.destroy();
+    console.log('[STORE] SyncManager destroyed');
+    
+    // 2. Clear auth from storage
     await logout();
+    console.log('[STORE] Auth cleared');
+    
+    // 3. Clear app state
     set({ user: null, isAuthenticated: false, dashboard: null, error: null });
+    console.log('[STORE] App state cleared — user should now see Login screen');
   },
 
   /** Seedha DB se dashboard lo — bas itna */

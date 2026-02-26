@@ -14,10 +14,8 @@ import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 import FontAwesome6 from "react-native-vector-icons/FontAwesome6";
 import { PieChart } from "react-native-gifted-charts";
 import { useNavigation } from "@react-navigation/native";
-
 import { COLORS } from "../constants/Colors";
 import { useAppStore } from "../store/AppStore";
-import { run } from "../database";
 
 type DisplayProps = {
   value: number;
@@ -99,7 +97,7 @@ const Dashboard = () => {
   // 2. Pull Request Handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchDashboard(true);
+    await fetchDashboard();
     setRefreshing(false);
   }, [fetchDashboard]);
 
@@ -134,14 +132,6 @@ const Dashboard = () => {
       </View>
     );
   }
- const checkValuationData = async () => {
-    try {
-      const result = await run("Select * from app_steps");
-      console.log("App Steps Data:", result);
-    } catch (error) {
-      console.error("Error checking valuation data:", error);
-    }
-  };
 
   return (
     <View style={styles.container}>
@@ -174,6 +164,13 @@ const Dashboard = () => {
           redirectTo="MyTasks"
         />
         <DisplayComponent
+          value={assigned}
+          text="Valuate"
+          icon="content-copy"
+          color="Grey"
+          redirectTo="ValuationList"
+        />
+        <DisplayComponent
           value={qcHold}
           text="Progress"
           icon="pending-actions"
@@ -186,12 +183,19 @@ const Dashboard = () => {
           icon="assignment-turned-in"
           color="Green"
         />
-        <TouchableOpacity onPress={logoutUser}>
-  <Text>Logout</Text>
-</TouchableOpacity>
-        <TouchableOpacity onPress={checkValuationData }>
-  <Text>Check Valuation Data</Text>
-</TouchableOpacity>
+
+        <TouchableOpacity 
+          onPress={async () => {
+            console.log('[Dashboard] Logging out...');
+            await logoutUser();
+            console.log('[Dashboard] Logout complete - navigating to Login');
+          }}
+          style={styles.logoutButton}
+        >
+          <MaterialIcons name="logout" size={20} color="#f44336" />
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+
       </ScrollView>
 
 
@@ -290,5 +294,21 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
     fontWeight: "700",
+  },
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    marginVertical: 12,
+    borderRadius: 8,
+    backgroundColor: "#ffebee",
+    gap: 8,
+  },
+  logoutText: {
+    color: "#f44336",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

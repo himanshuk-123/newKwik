@@ -1,12 +1,31 @@
 /**
- * Valuation Progress Database - Stub for offline mode
- * Progress tracking disabled for now
+ * Valuation Progress Database - Loads captured images from image_captures table
  */
 
+import { getCapturedImagesForLead } from './imageCaptureDb';
+
 export const getCapturedMediaByLeadId = async (leadId: string): Promise<any[]> => {
-  console.log('[ValuationProgress] getCapturedMediaByLeadId called (disabled)');
-  // Feature disabled - will enable later
-  return [];
+  try {
+    console.log('[ValuationProgress] Loading captured media for lead:', leadId);
+    const images = await getCapturedImagesForLead(leadId);
+    
+    const result = images.map(img => ({
+      side: img.side,
+      localUri: img.local_path,
+      uploadStatus: img.upload_status,
+    }));
+    
+    console.log('[ValuationProgress] Found captured images:', {
+      leadId,
+      total: result.length,
+      sides: result.map(r => r.side),
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('[ValuationProgress] Error loading captured media:', error);
+    return [];
+  }
 };
 
 export const setTotalCount = async (leadId: string, count: number): Promise<void> => {

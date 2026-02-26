@@ -38,6 +38,7 @@ import SingleCard from '../components/SingleCard';
 import { COLORS } from '../constants/Colors';
 import { VehicleCE } from '../assets';
 import { select, run } from '../database/db';
+import { getPendingCountForLead } from '../database/imageCaptureDb';
 import { confirmAppointmentApi } from '../services/ApiClient';
 import { useAppStore } from '../store/AppStore';
 
@@ -157,6 +158,7 @@ const MyTasksPage = () => {
   const [allLeads, setAllLeads] = useState<LeadFromDB[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
+  const [pendingCounts, setPendingCounts] = useState<Record<string, number>>({});
   const [selectedVehicleType, setSelectedVehicleType] = useState('2W');
 
   // ── Load from DB on every focus ───────────────────────────────────────────
@@ -164,6 +166,7 @@ const MyTasksPage = () => {
   useFocusEffect(
     useCallback(() => {
       loadLeadsFromDB();
+      loadPendingCounts();
     }, [])
   );
 
@@ -182,6 +185,25 @@ const MyTasksPage = () => {
       ToastAndroid.show('Failed to load tasks', ToastAndroid.SHORT);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const loadPendingCounts = async () => {
+    try {
+      const leads = await select<{ id: string }>('SELECT id FROM leads');
+      const counts: Record<string, number> = {};
+      
+      for (const lead of leads) {
+        const count = await getPendingCountForLead(lead.id);
+        if (count > 0) {
+          counts[lead.id] = count;
+        }
+      }
+      
+      setPendingCounts(counts);
+      console.log('[MyTasks] Loaded pending counts:', counts);
+    } catch (e) {
+      console.error('[MyTasks] loadPendingCounts error:', e);
     }
   };
 
@@ -350,6 +372,7 @@ const MyTasksPage = () => {
                   vehicleStatus: 'Active',
                 }}
                 vehicleType={selectedVehicleType}
+                pendingImagesCount={pendingCounts[item.id] || 0}
                 onValuateClick={() => {
                   // @ts-ignore
                   navigation.navigate('Valuate', {
