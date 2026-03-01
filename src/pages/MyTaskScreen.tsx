@@ -1,9 +1,3 @@
-/**
- * MyTasksPage — FIXED
- * Fix 1: vehicleType: item.vehicle_type_value (pehle selectedVehicleType tha — wrong)
- * Fix 2: loadPendingCounts — getPendingCountByLead() se N+1 solve
- */
-
 import {
   Image, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, TouchableWithoutFeedback, View,

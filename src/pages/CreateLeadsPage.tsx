@@ -28,10 +28,10 @@ import NetInfo from '@react-native-community/netinfo';
 import { COLORS } from '../constants/Colors';
 import { STATE_CITY_LIST } from '../constants/StateCityList';
 import { select, run } from '../database/db';
-import { submitCreateLeadApi, CreateLeadPayload } from '../services/ApiClient';
+import {  CreateLeadPayload } from '../services/ApiClient';
 import { fetchAreasForCity } from '../services/syncService';
 import { useAppStore } from '../store/AppStore';
-
+import { submitCreateLeadApi } from '../services/CreateLead';
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────

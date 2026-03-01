@@ -175,6 +175,61 @@ export const SYNC_META_TABLE = `
   );
 `;
 
+export const STATUS_LEADS_TABLE = `
+  CREATE TABLE IF NOT EXISTS status_leads (
+    status_type TEXT NOT NULL,
+    id TEXT NOT NULL,
+    lead_uid TEXT,
+    lead_id TEXT,
+    reg_no TEXT,
+    prospect_no TEXT,
+    customer_name TEXT,
+    customer_mobile TEXT,
+    company_id TEXT,
+    company_name TEXT,
+    vehicle TEXT,
+    vehicle_type_id TEXT,
+    vehicle_type_name TEXT,
+    vehicle_type_value TEXT,
+    state_id TEXT,
+    state_name TEXT,
+    city_id TEXT,
+    city_name TEXT,
+    area_id TEXT,
+    area_name TEXT,
+    client_city_id TEXT,
+    client_city_name TEXT,
+    pincode TEXT,
+    chassis_no TEXT,
+    engine_no TEXT,
+    status_id TEXT,
+    yard_name TEXT,
+    lead_report_id TEXT,
+    view_url TEXT,
+    download_url TEXT,
+    appointment_date TEXT,
+    added_by_date TEXT,
+    retail_bill_type TEXT,
+    retail_fees_amount REAL DEFAULT 0,
+    repo_bill_type TEXT,
+    repo_fees_amount REAL DEFAULT 0,
+    cando_bill_type TEXT,
+    cando_fees_amount REAL DEFAULT 0,
+    asset_bill_type TEXT,
+    valuator_name TEXT,
+    admin_ro TEXT,
+    qc_update_date TEXT,
+    updated_by_date TEXT,
+    lead_remark TEXT,
+    price_update_date TEXT,
+    completed_date TEXT,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (status_type, id)
+  );
+`;
+// status_type = 'SCLeads', 'ROLeads', 'QCLeads' etc. from LEAD_STATUS_ID_MAP
+// Ek table — status_type column se filter
+
 export const APP_STEPS_TABLE = `
   CREATE TABLE IF NOT EXISTS app_steps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,6 +242,29 @@ export const APP_STEPS_TABLE = `
 // steps_data = JSON.stringify(DataList) from AppStepList API
 // Valuation screen ke liye offline cached steps
 
+export const COMPLETED_LEADS_TABLE = `
+  CREATE TABLE IF NOT EXISTS completed_leads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    valuator_id INTEGER DEFAULT 0,
+    qc_pending INTEGER DEFAULT 0,
+    qc_hold INTEGER DEFAULT 0,
+    qc_completed INTEGER DEFAULT 0,
+    completed_lead INTEGER DEFAULT 0,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+
+export const DAYBOOK_TABLE = `
+  CREATE TABLE IF NOT EXISTS daybook (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    last_month INTEGER DEFAULT 0,
+    this_month INTEGER DEFAULT 0,
+    today INTEGER DEFAULT 0,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+// AppLeadDaybook API ka data — valuation completed leads page ke counters
+
 // ✅ Sab tables — states aur cities included
 export const TABLES = [
   USER_TABLE,
@@ -198,7 +276,10 @@ export const TABLES = [
   YARDS_TABLE,
   AREAS_TABLE,
   LEADS_TABLE,
+  STATUS_LEADS_TABLE,
   PENDING_LEADS_TABLE,
   SYNC_META_TABLE,
   APP_STEPS_TABLE,
+  COMPLETED_LEADS_TABLE,
+  DAYBOOK_TABLE,
 ];

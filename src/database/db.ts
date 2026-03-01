@@ -64,6 +64,51 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       UNIQUE(lead_id, side)
     )
   ` },
+  { version: 16, sql: `DROP TABLE IF EXISTS status_leads` },
+  { version: 17, sql: `
+    CREATE TABLE IF NOT EXISTS status_leads (
+      status_type TEXT NOT NULL, id TEXT NOT NULL,
+      lead_uid TEXT, lead_id TEXT, reg_no TEXT, prospect_no TEXT,
+      customer_name TEXT, customer_mobile TEXT, company_id TEXT, company_name TEXT,
+      vehicle TEXT, vehicle_type_id TEXT, vehicle_type_name TEXT, vehicle_type_value TEXT,
+      state_id TEXT, state_name TEXT, city_id TEXT, city_name TEXT,
+      area_id TEXT, area_name TEXT, client_city_id TEXT, client_city_name TEXT,
+      pincode TEXT, chassis_no TEXT, engine_no TEXT, status_id TEXT,
+      yard_name TEXT, lead_report_id TEXT, view_url TEXT, download_url TEXT,
+      appointment_date TEXT, added_by_date TEXT,
+      retail_bill_type TEXT, retail_fees_amount REAL DEFAULT 0,
+      repo_bill_type TEXT, repo_fees_amount REAL DEFAULT 0,
+      cando_bill_type TEXT, cando_fees_amount REAL DEFAULT 0,
+      asset_bill_type TEXT, valuator_name TEXT, admin_ro TEXT,
+      qc_update_date TEXT,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (status_type, id)
+    )
+  ` },
+  { version: 18, sql: `
+    CREATE TABLE IF NOT EXISTS completed_leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      valuator_id INTEGER DEFAULT 0,
+      qc_pending INTEGER DEFAULT 0,
+      qc_hold INTEGER DEFAULT 0,
+      qc_completed INTEGER DEFAULT 0,
+      completed_lead INTEGER DEFAULT 0,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { version: 19, sql: `ALTER TABLE status_leads ADD COLUMN updated_by_date TEXT` },
+  { version: 20, sql: `ALTER TABLE status_leads ADD COLUMN lead_remark TEXT` },
+  { version: 21, sql: `ALTER TABLE status_leads ADD COLUMN price_update_date TEXT` },
+  { version: 22, sql: `ALTER TABLE status_leads ADD COLUMN completed_date TEXT` },
+  { version: 23, sql: `
+    CREATE TABLE IF NOT EXISTS daybook (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      last_month INTEGER DEFAULT 0,
+      this_month INTEGER DEFAULT 0,
+      today INTEGER DEFAULT 0,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

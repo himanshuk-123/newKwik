@@ -1,5 +1,10 @@
 import { DashboardRecord } from '../types/api';
 import { select, run } from '../database/db';
+import type { DashboardResponse } from './types';
+import { apiCall, APP_VERSION } from './ApiClient';
+
+export const dashboardApi = (token: string): Promise<DashboardResponse> =>
+  apiCall<DashboardResponse>('AppDashboard', token, { version: APP_VERSION });
 
 /** Login ke baad syncService yahan save karta hai */
 export const saveDashboard = async (userId: string, record: DashboardRecord): Promise<void> => {
@@ -30,6 +35,14 @@ export const saveDashboard = async (userId: string, record: DashboardRecord): Pr
       record.SCLeads,
     ]
   );
+};
+
+/** API call + DB save ek saath — syncService sirf yahi call karega */
+export const fetchAndSaveDashboard = async (token: string, userId: string): Promise<void> => {
+  const res = await dashboardApi(token);
+  if (res.Error !== '0' || !res.DataRecord?.length) return;
+  await saveDashboard(userId, res.DataRecord[0]);
+  console.log('[DASHBOARD] Fetched & saved.');
 };
 
 /** Dashboard screen sirf yahi call karegi — seedha DB se */

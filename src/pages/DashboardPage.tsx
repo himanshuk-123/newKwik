@@ -175,6 +175,7 @@ const Dashboard = () => {
           text="Progress"
           icon="pending-actions"
           color="Blue"
+          redirectTo="LeadsInProgress"
         />
 
         <DisplayComponent
@@ -182,20 +183,8 @@ const Dashboard = () => {
           text="Completed"
           icon="assignment-turned-in"
           color="Green"
+          redirectTo="ValuationCompletedLeads"
         />
-
-        <TouchableOpacity 
-          onPress={async () => {
-            console.log('[Dashboard] Logging out...');
-            await logoutUser();
-            console.log('[Dashboard] Logout complete - navigating to Login');
-          }}
-          style={styles.logoutButton}
-        >
-          <MaterialIcons name="logout" size={20} color="#f44336" />
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-
       </ScrollView>
 
 
