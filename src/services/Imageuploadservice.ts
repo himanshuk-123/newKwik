@@ -15,7 +15,7 @@
 
 import RNFS from 'react-native-fs';
 import axios from 'axios';
-import { getPendingImages, markUploading, markUploaded, markFailed, CapturedImage } from '../database/imageCaptureDb';
+import { getPendingImages, getPendingImagesForLead, markUploading, markUploaded, markFailed, CapturedImage } from '../database/imageCaptureDb';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,6 +311,52 @@ export const uploadPendingImages = async (
     console.log(`[Upload] Done: ${uploaded} uploaded, ${failed} failed`);
   } finally {
     isUploading = false;
+  }
+
+  return { uploaded, failed };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PER-LEAD UPLOAD — Submit se pehle sirf ek lead ki images upload karo
+// isUploading guard SKIP karta hai — ye urgent sync hai submit se pehle
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const uploadPendingImagesForLead = async (
+  token: string,
+  leadId: string,
+  onProgress?: (uploaded: number, total: number) => void
+): Promise<{ uploaded: number; failed: number }> => {
+  let uploaded = 0;
+  let failed = 0;
+
+  try {
+    const pending = await getPendingImagesForLead(leadId);
+
+    if (pending.length === 0) {
+      console.log(`[Upload] No pending images for lead ${leadId}`);
+      return { uploaded: 0, failed: 0 };
+    }
+
+    console.log(`[Upload] 🔄 Pre-submit sync: ${pending.length} images for lead ${leadId}`);
+
+    for (let i = 0; i < pending.length; i++) {
+      const image = pending[i];
+      const success = await uploadSingleImage(token, image);
+
+      if (success) uploaded++;
+      else failed++;
+
+      onProgress?.(uploaded, pending.length);
+
+      // Server pe thodi delay — 300ms between uploads
+      if (i < pending.length - 1) {
+        await new Promise<void>(resolve => setTimeout(resolve, 300));
+      }
+    }
+
+    console.log(`[Upload] Pre-submit done for lead ${leadId}: ${uploaded} uploaded, ${failed} failed`);
+  } catch (e) {
+    console.error(`[Upload] Pre-submit error for lead ${leadId}:`, e);
   }
 
   return { uploaded, failed };

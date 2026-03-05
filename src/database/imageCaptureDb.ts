@@ -209,3 +209,18 @@ export const getPendingCountForLead = async (leadId: string): Promise<number> =>
   );
   return rows[0]?.count ?? 0;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET PENDING FOR A SPECIFIC LEAD — pre-submit sync ke liye
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getPendingImagesForLead = async (
+  leadId: string
+): Promise<CapturedImage[]> => {
+  return select<CapturedImage>(
+    `SELECT * FROM image_captures
+     WHERE lead_id = ? AND upload_status IN ('pending', 'failed')
+     ORDER BY created_at ASC`,
+    [leadId]
+  );
+};

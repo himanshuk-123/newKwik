@@ -32,6 +32,8 @@ import {
   submitVehicleDetails,
   type DropdownItem,
 } from "../services/VehicleDetailService";
+import { uploadPendingImagesForLead } from '../services/Imageuploadservice';
+import { getPendingCountForLead } from '../database/imageCaptureDb';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -473,6 +475,27 @@ const VehicleDetails = ({ route }: { route: any }) => {
       )?.id;
 
       const vehicleModel = `${carData.model} ${carData.variant}`.trim();
+
+      // ── Pre-submit: Pending images pehle upload karo ─────────────────────
+      const currentLeadId = String(leadData?.Id || carId);
+      if (isOnline) {
+        const pendingCount = await getPendingCountForLead(currentLeadId);
+        if (pendingCount > 0) {
+          ToastAndroid.show(
+            `Uploading ${pendingCount} pending images before submit...`,
+            ToastAndroid.LONG
+          );
+          const syncResult = await uploadPendingImagesForLead(token, currentLeadId);
+          if (syncResult.failed > 0) {
+            ToastAndroid.show(
+              `${syncResult.failed} image(s) failed to upload. Please retry.`,
+              ToastAndroid.LONG
+            );
+            return;
+          }
+          console.log(`[VehicleDetails] ✅ All ${syncResult.uploaded} images uploaded before submit`);
+        }
+      }
 
       const payload = {
         Id: 1,
