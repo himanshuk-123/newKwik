@@ -510,10 +510,10 @@ const ValuationPage = () => {
   const isAllImagesCaptured = () => clickableImageSides.length > 0 && clickableImageSides.every(s => !!getClickedImage(s));
 
   const handleNextClick = () => {
-    // if (!isAllImagesCaptured()) {
-    //   ToastAndroid.show("Please capture all images first", ToastAndroid.SHORT);
-    //   return;
-    // }
+    if (!isAllImagesCaptured()) {
+      ToastAndroid.show("Please capture all images first", ToastAndroid.SHORT);
+      return;
+    }
     // @ts-ignore
     navigation.navigate("VehicleDetails", { carId: leadId, leadData, vehicleType, optionalInfoAnswers: optionalInfoQuestionAnswer });
   };
