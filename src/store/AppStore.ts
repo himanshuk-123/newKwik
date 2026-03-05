@@ -39,11 +39,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadStoredUser: async () => {
     try {
       const user = await getStoredUser();
-      set({
-        user,
-        isAuthenticated: user !== null,
-        isAppReady: true,
-      });
+      if (user) {
+        // Authenticated — isAppReady abhi false rehega, dashboard fetch ke baad true hoga
+        set({ user, isAuthenticated: true });
+      } else {
+        // Not authenticated — ready hai, login screen dikhao
+        set({ user: null, isAuthenticated: false, isAppReady: true });
+      }
     } catch (e) {
       console.error('[STORE] loadStoredUser error:', e);
       set({ isAuthenticated: false, isAppReady: true });

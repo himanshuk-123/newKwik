@@ -28,12 +28,11 @@ import { COLORS } from "../constants/Colors";
 import { useValuationStore } from "../store/valuation.store";
 import type { AppStepListDataRecord } from "../services/types";
 import { getAppSteps } from "../services/AppStepService";
-import { apiCall } from "../services/ApiClient";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import RNFS from 'react-native-fs';
 import { uploadQueueManager } from "../services/uploadQueue.manager";
 import { getCapturedMediaByLeadId, setTotalCount, updateLeadMetadata } from "../database/valuationProgress.db";
-import { select } from "../database/db";
+import { saveQuestionnaireAnswer } from "../database/imageCaptureDb";
 import useQuestions from "../services/useQuestions";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,15 +78,6 @@ interface RouteParams {
 // ─────────────────────────────────────────────────────────────────────────────
 // submitLeadReportApi — ApiClient ka apiCall use karta hai (correct BASE_URL)
 // ─────────────────────────────────────────────────────────────────────────────
-
-const submitLeadReportApi = async (payload: any): Promise<{ ERROR: string; MESSAGE: string }> => {
-  const tokenRows = await select<{ token: string }>('SELECT token FROM users LIMIT 1');
-  const token = tokenRows[0]?.token ?? '';
-  return apiCall<{ ERROR: string; MESSAGE: string }>('LeadReportDataCreateedit', token, {
-    Version: '2',
-    ...payload,
-  });
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ICON MAPPING
@@ -472,9 +462,20 @@ const ValuationPage = () => {
     }
 
     const questionData = getSideQuestion({ data: steps, vehicleType, nameInApplication: stepData.Name || lastUpload.side });
+    const actualData = questionData || stepData;
+
+    // Skip modal if no meaningful question and no answers (e.g. "NO question", empty)
+    const qText = (actualData.Questions || '').trim().toLowerCase();
+    const aText = (actualData.Answer || '').trim();
+    const hasNoMeaningfulQuestion = !qText || qText === 'no question' || qText === 'no questions';
+    if (hasNoMeaningfulQuestion && !aText) {
+      processedSidesRef.current[lastUpload.side] = true;
+      setLastProcessedSide(lastUpload.side);
+      return;
+    }
 
     setCurrentSideForCondition(lastUpload.side);
-    setCurrentSideQuestionData(questionData || stepData);
+    setCurrentSideQuestionData(actualData);
     setShowConditionModal(true);
     processedSidesRef.current[lastUpload.side] = true;
     setLastProcessedSide(lastUpload.side);
@@ -514,7 +515,7 @@ const ValuationPage = () => {
     //   return;
     // }
     // @ts-ignore
-    navigation.navigate("VehicleDetails", { carId: leadId, leadData, vehicleType });
+    navigation.navigate("VehicleDetails", { carId: leadId, leadData, vehicleType, optionalInfoAnswers: optionalInfoQuestionAnswer });
   };
 
   // ✅ Video — Camera screen pe redirect (VideoCamera screen nahi hai navigator mein)
@@ -634,11 +635,11 @@ const ValuationPage = () => {
               }
 
               try {
-                await submitLeadReportApi(payload);
-                ToastAndroid.show("Answer submitted", ToastAndroid.SHORT);
+                await saveQuestionnaireAnswer(leadId, currentSideForCondition, payload);
+                ToastAndroid.show("Answer saved", ToastAndroid.SHORT);
               } catch (e) {
-                console.error('[ValuationPage] submitLeadReport failed:', e);
-                ToastAndroid.show("Failed to submit answer", ToastAndroid.LONG);
+                console.error('[ValuationPage] saveQuestionnaireAnswer failed:', e);
+                ToastAndroid.show("Failed to save answer", ToastAndroid.LONG);
               }
             }}
             onClose={() => setShowConditionModal(false)}

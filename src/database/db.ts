@@ -142,6 +142,9 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   { version: 30, sql: `ALTER TABLE image_captures ADD COLUMN captured_at TEXT DEFAULT NULL` },
   // v31 — Profile image column for users table
   { version: 31, sql: `ALTER TABLE users ADD COLUMN profile_image TEXT DEFAULT NULL` },
+  // v32-33 — Questionnaire answers linked to image captures
+  { version: 32, sql: `ALTER TABLE image_captures ADD COLUMN answer_data TEXT DEFAULT NULL` },
+  { version: 33, sql: `ALTER TABLE image_captures ADD COLUMN answer_status TEXT DEFAULT NULL` },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

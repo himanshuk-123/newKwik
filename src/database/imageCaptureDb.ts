@@ -30,6 +30,8 @@ export interface CapturedImage {
   latitude: string | null;        // GPS lat at capture moment (string like old app)
   longitude: string | null;       // GPS long at capture moment (string like old app)
   captured_at: string | null;     // ISO timestamp at exact capture moment
+  answer_data: string | null;     // JSON string of questionnaire payload
+  answer_status: 'pending' | 'submitted' | null; // questionnaire submit status
   created_at: string;
   uploaded_at: string | null;
 }
@@ -222,5 +224,50 @@ export const getPendingImagesForLead = async (
      WHERE lead_id = ? AND upload_status IN ('pending', 'failed')
      ORDER BY created_at ASC`,
     [leadId]
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUESTIONNAIRE ANSWERS — Image ke saath locally store karo
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Save questionnaire answer for a side (linked to its image capture row)
+ * answer_data = JSON string of the payload
+ * answer_status = 'pending' | 'submitted'
+ */
+export const saveQuestionnaireAnswer = async (
+  leadId: string,
+  side: string,
+  answerData: Record<string, any>
+): Promise<void> => {
+  const json = JSON.stringify(answerData);
+  await run(
+    `UPDATE image_captures
+     SET answer_data = ?, answer_status = 'pending'
+     WHERE lead_id = ? AND side = ?`,
+    [json, leadId, side]
+  );
+  console.log(`[ImageDB] 💾 Saved questionnaire answer for ${side} (lead: ${leadId})`);
+};
+
+/**
+ * Get all images that have pending questionnaire answers (image already uploaded)
+ */
+export const getPendingAnswers = async (): Promise<CapturedImage[]> => {
+  return select<CapturedImage>(
+    `SELECT * FROM image_captures
+     WHERE answer_data IS NOT NULL AND answer_status = 'pending' AND upload_status = 'uploaded'
+     ORDER BY created_at ASC`
+  );
+};
+
+/**
+ * Mark answer as submitted after API success
+ */
+export const markAnswerSubmitted = async (id: number): Promise<void> => {
+  await run(
+    `UPDATE image_captures SET answer_status = 'submitted' WHERE id = ?`,
+    [id]
   );
 };

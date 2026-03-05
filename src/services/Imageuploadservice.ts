@@ -15,7 +15,8 @@
 
 import RNFS from 'react-native-fs';
 import axios from 'axios';
-import { getPendingImages, getPendingImagesForLead, markUploading, markUploaded, markFailed, CapturedImage } from '../database/imageCaptureDb';
+import { getPendingImages, getPendingImagesForLead, markUploading, markUploaded, markFailed, getPendingAnswers, markAnswerSubmitted, CapturedImage } from '../database/imageCaptureDb';
+import { apiCall } from './ApiClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
@@ -117,6 +118,56 @@ const uploadImageApi = async (
       throw error;
     }
   }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUESTIONNAIRE ANSWER SUBMIT — Image upload ke baad answer bhejo
+// ─────────────────────────────────────────────────────────────────────────────
+
+const submitAnswerForImage = async (token: string, image: CapturedImage): Promise<boolean> => {
+  if (!image.answer_data) return false;
+  try {
+    const payload = JSON.parse(image.answer_data);
+    console.log(`[Upload] 📝 Submitting answer for ${image.side} (lead: ${image.lead_id})`);
+    const res = await apiCall<{ ERROR: string; MESSAGE: string }>('LeadReportDataCreateedit', token, {
+      Version: '2',
+      ...payload,
+    });
+    if (res.ERROR === '0') {
+      await markAnswerSubmitted(image.id);
+      console.log(`[Upload] ✅ Answer submitted: ${image.side}`);
+      return true;
+    } else {
+      console.warn(`[Upload] ❌ Answer rejected: ${image.side}`, res);
+      return false;
+    }
+  } catch (e: any) {
+    console.error(`[Upload] ❌ Answer submit failed: ${image.side}`, e?.message);
+    return false;
+  }
+};
+
+/**
+ * Submit all pending answers whose images are already uploaded
+ * Called by SyncManager after image batch upload completes
+ */
+export const submitPendingAnswers = async (token: string): Promise<{ submitted: number; failed: number }> => {
+  let submitted = 0;
+  let failed = 0;
+  try {
+    const pending = await getPendingAnswers();
+    if (!pending.length) return { submitted: 0, failed: 0 };
+    console.log(`[Upload] 📝 Submitting ${pending.length} pending answers...`);
+    for (const image of pending) {
+      const ok = await submitAnswerForImage(token, image);
+      if (ok) submitted++;
+      else failed++;
+    }
+    console.log(`[Upload] 📝 Answers done: ${submitted} submitted, ${failed} failed`);
+  } catch (e: any) {
+    console.error('[Upload] ❌ submitPendingAnswers error:', e?.message);
+  }
+  return { submitted, failed };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,6 +292,12 @@ export const uploadSingleImage = async (
     if (res.ERRORCODE === '0') {
       await markUploaded(image.id);
       console.log(`[Upload] ✅ SUCCESS: ${image.side} → ${fieldName} (lead: ${image.lead_id})`);
+
+      // Image uploaded → now submit linked questionnaire answer if any
+      if (image.answer_data && image.answer_status === 'pending') {
+        await submitAnswerForImage(token, image);
+      }
+
       return true;
     } else {
       await markFailed(image.id);
@@ -309,6 +366,9 @@ export const uploadPendingImages = async (
     }
 
     console.log(`[Upload] Done: ${uploaded} uploaded, ${failed} failed`);
+
+    // After all images uploaded, submit any pending questionnaire answers
+    await submitPendingAnswers(token);
   } finally {
     isUploading = false;
   }

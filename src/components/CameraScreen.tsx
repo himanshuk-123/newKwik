@@ -101,7 +101,7 @@ const CameraScreen = () => {
     if (useFrontCamera) {
       Orientation.lockToPortrait();
     } else {
-      Orientation.lockToLandscapeRight();
+      Orientation.lockToLandscapeLeft();
     }
     return () => {
       Orientation.lockToPortrait();

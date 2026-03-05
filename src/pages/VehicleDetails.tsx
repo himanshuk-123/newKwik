@@ -34,6 +34,7 @@ import {
 } from "../services/VehicleDetailService";
 import { uploadPendingImagesForLead } from '../services/Imageuploadservice';
 import { getPendingCountForLead } from '../database/imageCaptureDb';
+import { apiCall } from '../services/ApiClient';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -157,7 +158,7 @@ const InputComponent = ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const VehicleDetails = ({ route }: { route: any }) => {
-  const { carId, leadData, vehicleType } = route.params || { carId: "KWC12345" };
+  const { carId, leadData, vehicleType, optionalInfoAnswers } = route.params || { carId: "KWC12345" };
   useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { user } = useAppStore();
@@ -497,6 +498,27 @@ const VehicleDetails = ({ route }: { route: any }) => {
         }
       }
 
+      // ── Submit optional info answers (Battery/Vehicle/Paint Condition) ────
+      if (optionalInfoAnswers && Object.keys(optionalInfoAnswers).length > 0) {
+        const currentLeadIdForInfo = leadData?.Id || carId;
+        const OPTIONAL_MAPPING: Record<string, (answer: string) => any> = {
+          'battery condition check': (a) => ({ LeadId: currentLeadIdForInfo, LeadFeature: { Battery: a } }),
+          'vehicle condition check': (a) => ({ LeadId: currentLeadIdForInfo, LeadFeature: { VehicleCondition: a } }),
+          'check paint condition': (a) => ({ LeadHighlight: { LeadId: currentLeadIdForInfo, Chassis: a } }),
+        };
+        for (const [question, answer] of Object.entries(optionalInfoAnswers)) {
+          const buildPayload = OPTIONAL_MAPPING[question.toLowerCase()];
+          if (buildPayload && answer) {
+            try {
+              await apiCall('LeadReportDataCreateedit', token, { Version: '2', ...buildPayload(answer as string) });
+              console.log(`[VehicleDetails] ✅ Optional info submitted: ${question} = ${answer}`);
+            } catch (e) {
+              console.warn(`[VehicleDetails] ⚠️ Optional info failed: ${question}`, e);
+            }
+          }
+        }
+      }
+
       const payload = {
         Id: 1,
         LeadId: leadData?.Id || carId,
@@ -570,7 +592,7 @@ const VehicleDetails = ({ route }: { route: any }) => {
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Vehicle Details</Text>
           </View>
-          <TouchableOpacity
+          {/* <TouchableOpacity
             style={[
               styles.fetchVahanBtn,
               (isFetchingVahan || !isOnline) && styles.fetchVahanBtnDisabled,
@@ -579,14 +601,8 @@ const VehicleDetails = ({ route }: { route: any }) => {
             disabled={isFetchingVahan || !isOnline}
             activeOpacity={0.7}
           >
-            {isFetchingVahan ? (
-              <ActivityIndicator size="small" color={COLORS.AppTheme.primary} />
-            ) : (
-              <Text style={styles.fetchVahanText}>
-                {isOnline ? "Fetch vahan" : "Offline"}
-              </Text>
-            )}
-          </TouchableOpacity>
+            <Text></Text>
+          </TouchableOpacity> */}
         </View>
 
         <View style={styles.formContainer}>

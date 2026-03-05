@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { View, ActivityIndicator, StyleSheet, Platform, StatusBar } from 'react-native';
+import { View, Platform, StatusBar } from 'react-native';
 import { initDb } from './src/database';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { useAppStore } from './src/store/AppStore';
@@ -14,6 +14,7 @@ import { SyncManager } from './src/services/Syncmanager';
 import { syncPendingLeads } from './src/services/syncService';
 import { submitCreateLeadApi } from './src/services/ApiClient';
 import NetInfo from '@react-native-community/netinfo';
+import SplashScreen from './src/components/SplashScreen';
 import 'react-native-reanimated';
 
 const App = () => {
@@ -24,8 +25,16 @@ const App = () => {
       try {
         await initDb();
         await loadStoredUser();
+        // Pre-fetch dashboard so data is ready when Dashboard renders
+        const { isAuthenticated: authed, fetchDashboard: fetch } = useAppStore.getState();
+        if (authed) {
+          await fetch();
+        }
       } catch (error) {
         console.error('[App] Bootstrap failed:', error);
+      } finally {
+        // Splash hatao — sab load ho gaya
+        useAppStore.setState({ isAppReady: true });
       }
     };
     bootstrap();
@@ -68,11 +77,7 @@ const App = () => {
   }, [user?.token]);
 
   if (!isAppReady) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#0066CC" />
-      </View>
-    );
+    return <SplashScreen />;
   }
 
   return (
@@ -86,14 +91,5 @@ const App = () => {
     </GestureHandlerRootView>
   );
 };
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-  },
-});
 
 export default App;
