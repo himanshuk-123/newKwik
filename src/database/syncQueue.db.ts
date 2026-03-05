@@ -30,7 +30,7 @@ export const syncQueueQueries = {
   // Sab pending items lo (retry_count < 3)
   getPending: async (): Promise<PendingLead[]> => {
     return select<PendingLead>(
-      "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 3 ORDER BY created_at ASC",
+      "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 9 ORDER BY created_at ASC",
       []
     );
   },

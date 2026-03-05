@@ -6,15 +6,17 @@ import { fetchAndSaveDashboard } from './DashboardService';
 import { saveCompanies } from './CompanyService';
 import { saveAllVehicleTypes } from './VehicleTypeService';
 import { saveAllYards } from './YardService';
-import { saveLeads, fetchAndSaveAllStatusLeads, syncPendingLeads } from './LeadService';
+import { fetchAndSaveAllStatusLeads, syncPendingLeads } from './LeadService';
 import { saveAppStepsForAllVehicleTypes } from './AppStepService';
 import { fetchAndSaveCompletedLeads } from './AppLeadCompleted';
 import { fetchAndSaveDaybook } from './AppLeadDaybook';
+import { syncAllDropdownsForCategory, syncPendingVehicleDetails } from './VehicleDetailService';
 
 // Re-export for backward compatibility
 export { fetchAreasForCity } from './AreaService';
-export { syncPendingLeads } from './LeadService';
-export { syncAppStepsForAllVehicleTypes as syncAppStepsForAllVehicleTypes } from './AppStepService';
+export { syncPendingLeads} from './LeadService';
+export { saveAppStepsForAllVehicleTypes } from './AppStepService';
+export { syncPendingVehicleDetails } from './VehicleDetailService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN SYNC
@@ -29,15 +31,16 @@ export const syncAllData = async (token: string, userId: string): Promise<void> 
     syncDashboard(token, userId),
     syncCompanies(token),
     syncYards(token),
-    syncLeads(token),
   ]);
 
   console.log('[SYNC] Critical sync done.');
   await syncAllVehicleTypes(token);
-  await syncAppSteps(token);
   await syncStatusLeads(token);
+  await syncAppSteps(token);
   await syncCompletedLeads(token);
   await syncDaybook(token);
+  await syncDropdowns(token);
+  await syncPendingVehicleDetailsQueue(token);
   console.log('[SYNC] All done.');
 };
 
@@ -121,19 +124,6 @@ const syncYards = async (token: string): Promise<void> => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEADS (old leads table — StatusId 0 = all)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const syncLeads = async (token: string): Promise<void> => {
-  try {
-    await saveLeads(token);
-    await updateSyncMeta('leads');
-  } catch (e) {
-    console.error('[SYNC] Leads failed:', e);
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
 // STATUS LEADS (har status ka alag data — ek table, generic loop)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -194,4 +184,37 @@ const updateSyncMeta = async (apiName: string): Promise<void> => {
     `INSERT OR REPLACE INTO sync_meta (api_name, last_synced_at, status) VALUES (?, CURRENT_TIMESTAMP, 'synced')`,
     [apiName]
   );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DROPDOWNS (FuelType, VehicleTypeMode, ColorsType) — VehicleDetails ke liye
+// ─────────────────────────────────────────────────────────────────────────────
+
+const syncDropdowns = async (token: string): Promise<void> => {
+  try {
+    // Sab common vehicle categories ke liye sync
+    const categories = ['2W', '3W', '4W', 'CV', 'FE', 'CE'];
+    await Promise.allSettled(
+      categories.map(cat => syncAllDropdownsForCategory(token, cat))
+    );
+    await updateSyncMeta('dropdown_cache');
+    console.log('[SYNC] Dropdowns synced for all categories.');
+  } catch (e) {
+    console.error('[SYNC] Dropdowns failed:', e);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PENDING VEHICLE DETAILS — Offline queue sync
+// ─────────────────────────────────────────────────────────────────────────────
+
+const syncPendingVehicleDetailsQueue = async (token: string): Promise<void> => {
+  try {
+    const result = await syncPendingVehicleDetails(token);
+    if (result.synced > 0 || result.failed > 0) {
+      console.log(`[SYNC] Vehicle details: ${result.synced} synced, ${result.failed} failed`);
+    }
+  } catch (e) {
+    console.error('[SYNC] Pending vehicle details sync failed:', e);
+  }
 };

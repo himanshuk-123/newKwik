@@ -1,17 +1,19 @@
 import {
   Image, ScrollView, StyleSheet, Text, TextInput,
   TouchableOpacity, TouchableWithoutFeedback, View,
-  ActivityIndicator, ToastAndroid,
+  ActivityIndicator, ToastAndroid, RefreshControl,
 } from 'react-native';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useRef, useState, useCallback, useMemo } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import NetInfo from '@react-native-community/netinfo';
 import Feather from 'react-native-vector-icons/Feather';
 import SingleCard from '../components/SingleCard';
 import { COLORS } from '../constants/Colors';
 import { VehicleCE } from '../assets';
-import { select, run } from '../database/db';
+import { run } from '../database/db';
+import { getLeadsByStatus, fetchAndSaveLeadsByStatus } from '../services/LeadService';
 import { getPendingCountByLead } from '../database/imageCaptureDb'; // ✅ batch call
 import { confirmAppointmentApi } from '../services/ApiClient';
 import { useAppStore } from '../store/AppStore';
@@ -31,6 +33,7 @@ const DisplayIcons = [
 ];
 
 interface LeadFromDB {
+  status_type: string;
   id: string;
   lead_uid: string;
   lead_id: string;
@@ -56,6 +59,8 @@ interface LeadFromDB {
   repo_bill_type: string; repo_fees_amount: number;
   cando_bill_type: string; cando_fees_amount: number;
   asset_bill_type: string; valuator_name: string; admin_ro: string;
+  qc_update_date: string; updated_by_date: string; lead_remark: string;
+  price_update_date: string; completed_date: string;
 }
 
 const isBillingAllowed = (item: LeadFromDB): boolean => {
@@ -83,6 +88,7 @@ const MyTasksPage = () => {
 
   const [allLeads, setAllLeads] = useState<LeadFromDB[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [pendingCounts, setPendingCounts] = useState<Record<string, number>>({});
   const [selectedVehicleType, setSelectedVehicleType] = useState('2W');
@@ -94,10 +100,37 @@ const MyTasksPage = () => {
     }, [])
   );
 
+  // ── Pull to Refresh — online hai toh API se fresh data, warna DB se ─────────
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const netState = await NetInfo.fetch();
+
+      if (netState.isConnected && user?.token) {
+        // Online → API call → DB mein fresh data save
+        await fetchAndSaveLeadsByStatus(user.token, 'AssignedLeads');
+        console.log('[MyTasks] ✅ Refreshed from server');
+      } else {
+        console.log('[MyTasks] Offline — showing cached data');
+        ToastAndroid.show('Offline — showing cached data', ToastAndroid.SHORT);
+      }
+
+      // Always read from local DB
+      await loadLeadsFromDB();
+      await loadPendingCounts();
+    } catch (e) {
+      console.error('[MyTasks] Refresh error:', e);
+      ToastAndroid.show('Refresh failed', ToastAndroid.SHORT);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user?.token]);
+
   const loadLeadsFromDB = async () => {
     try {
       setIsLoading(true);
-      const rows = await select<LeadFromDB>('SELECT * FROM leads ORDER BY id DESC');
+      const rows = await getLeadsByStatus('AssignedLeads') as LeadFromDB[];
       setAllLeads(rows);
       console.log('[MyTasks] Leads from DB:', rows.length);
     } catch (e) {
@@ -151,7 +184,7 @@ const MyTasksPage = () => {
         if (event.type === 'dismissed' || !date || !user?.token) return;
         try {
           await confirmAppointmentApi(user.token, item.id, date.toISOString());
-          await run('UPDATE leads SET appointment_date = ? WHERE id = ?', [date.toISOString(), item.id]);
+          await run('UPDATE status_leads SET appointment_date = ? WHERE status_type = ? AND id = ?', [date.toISOString(), 'AssignedLeads', item.id]);
           ToastAndroid.show('Appointment set successfully', ToastAndroid.SHORT);
           await loadLeadsFromDB();
         } catch {
@@ -190,7 +223,18 @@ const MyTasksPage = () => {
         </ScrollView>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.AppTheme.primary]}
+            tintColor={COLORS.AppTheme.primary}
+          />
+        }
+      >
         <TouchableWithoutFeedback onPress={() => searchRef.current?.blur()}>
           <View style={styles.rowContainer}>
             <TextInput
@@ -216,7 +260,7 @@ const MyTasksPage = () => {
                 data={{
                   id: item.lead_uid?.toUpperCase(),
                   regNo: item.reg_no?.toUpperCase(),
-                  vehicleName: item.vehicle_type_value,
+                  vehicleName: item.vehicle ?? 'NA',
                   chassisNo: item.chassis_no || 'NA',
                   client: isRepoCase ? item.company_name : item.customer_name,
                   companyName: item.company_name ?? '',

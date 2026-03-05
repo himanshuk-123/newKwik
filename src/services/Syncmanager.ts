@@ -15,7 +15,8 @@
 
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { uploadPendingImages } from './Imageuploadservice';
-import { getPendingCount } from '../database/imageCaptureDb';
+import { getPendingCount, resetStuckUploads } from '../database/imageCaptureDb';
+import { syncPendingVehicleDetails } from './VehicleDetailService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STATE
@@ -44,6 +45,13 @@ const notify = (status: SyncStatus, pending: number) => {
 
 const runUpload = async () => {
   if (!_token) return;
+
+  // ── Pending vehicle details bhi sync karo ──
+  try {
+    await syncPendingVehicleDetails(_token);
+  } catch (e) {
+    console.error('[SyncManager] Vehicle details sync error:', e);
+  }
 
   const pending = await getPendingCount();
   if (pending === 0) {
@@ -107,6 +115,11 @@ export const SyncManager = {
     if (_unsubscribeNetInfo) {
       _unsubscribeNetInfo();
     }
+
+    // ✅ FIX: Stuck 'uploading' images ko reset karo (app kill recovery)
+    resetStuckUploads().catch(e =>
+      console.error('[SyncManager] resetStuckUploads error:', e)
+    );
 
     // Current network state check karo
     NetInfo.fetch().then(async state => {

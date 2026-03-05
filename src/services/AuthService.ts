@@ -70,7 +70,9 @@ export const logout = async (): Promise<void> => {
   // ✅ FIX: Added [] params to all run() calls — good practice even though defaults exist
   await run('DELETE FROM users', []);
   await run('DELETE FROM dashboard', []);
-  await run('DELETE FROM leads', []);             // ✅ Also clear leads on logout
-  await run('DELETE FROM pending_leads', []);     // ✅ Also clear pending queue on logout
+  await run('DELETE FROM status_leads', []);       // ✅ Generic status_leads table
+  await run('DELETE FROM completed_leads', []);    // ✅ CompletedLeads card page data
+  await run('DELETE FROM daybook', []);            // ✅ Daybook counters
+  await run('DELETE FROM pending_leads', []);      // ✅ Also clear pending queue on logout
   await run("UPDATE sync_meta SET status = 'pending', last_synced_at = NULL", []);
 };

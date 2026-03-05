@@ -19,15 +19,16 @@ import {
   Image,
   Modal,
   TextInput,
-  SafeAreaView,
   ActivityIndicator,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets,SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { COLORS } from "../constants/Colors";
 import { useValuationStore } from "../store/valuation.store";
-import { AppStepListDataRecord } from "../store/valuation.store"; // ✅ Fixed import
+import type { AppStepListDataRecord } from "../services/types";
+import { getAppSteps } from "../services/AppStepService";
+import { apiCall } from "../services/ApiClient";
 import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
 import RNFS from 'react-native-fs';
 import { uploadQueueManager } from "../services/uploadQueue.manager";
@@ -76,27 +77,16 @@ interface RouteParams {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// submitLeadReportApi — inline, valuation.api.ts nahi hai
+// submitLeadReportApi — ApiClient ka apiCall use karta hai (correct BASE_URL)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BASE_URL = 'https://uat.kwikcheck.in/App/webservice';
-const APP_VERSION = '6';
-
 const submitLeadReportApi = async (payload: any): Promise<{ ERROR: string; MESSAGE: string }> => {
-  // Token DB se le lo
   const tokenRows = await select<{ token: string }>('SELECT token FROM users LIMIT 1');
   const token = tokenRows[0]?.token ?? '';
-
-  const response = await fetch(`${BASE_URL}/LeadReport`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'TokenID': token,
-      'version': APP_VERSION,
-    },
-    body: JSON.stringify(payload),
+  return apiCall<{ ERROR: string; MESSAGE: string }>('LeadReportDataCreateedit', token, {
+    Version: '2',
+    ...payload,
   });
-  return response.json();
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,10 +162,19 @@ const ConditionModal = ({ open, sideName, questionsData, onSubmit, onClose }: Co
   const stepName = (questionsData.Name || '').toLowerCase();
   const isOdometer = stepName.includes('odometer') || stepName.includes('odmeter');
   const isChassisPlate = stepName.includes('chassis plate');
-  const questions = questionsData.Questions || null;
-  const hasQuestions = Boolean(questions);
-  const normalizedAnswers = (questionsData.Answer || '').replaceAll('~', '/');
-  const answers = normalizedAnswers.split('/').map((i: string) => i.trim()).filter(Boolean);
+
+  // ── Questions "~" separated → array, Answer "~" per-question, "/" per-option ──
+  const questionsList = (questionsData.Questions || '').split('~').map(q => q.trim()).filter(Boolean);
+  const hasQuestions = questionsList.length > 0;
+
+  // Answer bhi "~" se split → per-question answer sets, phir "/" se options
+  const answerSets = (questionsData.Answer || '').split('~');
+  // e.g. Odometer: answerSets = ["", "Available/Not Available"]
+  // e.g. Front Side: answerSets = ["Good/Average/Bad/Damaged"]
+  const firstOptions = (answerSets[0] || '').split('/').map(i => i.trim()).filter(Boolean);
+  const secondOptions = answerSets.length > 1
+    ? (answerSets[1] || '').split('/').map(i => i.trim()).filter(Boolean)
+    : [];
 
   const handleSubmit = () => {
     if (!hasQuestions) { onSubmit({}); onClose(); return; }
@@ -207,36 +206,45 @@ const ConditionModal = ({ open, sideName, questionsData, onSubmit, onClose }: Co
         <View style={styles.modalContent}>
           <ScrollView contentContainerStyle={styles.modalScrollContent} showsVerticalScrollIndicator={false}>
             <RNText style={styles.modalTitle}>
-              {hasQuestions ? (Array.isArray(questions) ? questions[0] : questions) : "Image Captured"}
+              {hasQuestions ? questionsList[0] : "Image Captured"}
             </RNText>
             <RNText style={styles.modalSubtitle}>For: {sideName}</RNText>
             {hasQuestions ? (
               <>
-                {isOdometer && Array.isArray(questions) && (
+                {/* ── ODOMETER: text input + key availability ── */}
+                {isOdometer && (
                   <>
-                    <RNText style={styles.optionsLabel}>{questions[0]}</RNText>
+                    <RNText style={styles.optionsLabel}>{questionsList[0]}</RNText>
                     <TextInput style={styles.modalInput} placeholder="Odometer Reading" placeholderTextColor="#999" keyboardType="numeric" value={odometerReading} onChangeText={(v) => { setOdometerReading(v); setSelectedAnswer(v); }} />
-                    <RNText style={styles.optionsLabel}>{questions[1]}</RNText>
-                    <View style={styles.optionsContainer}>
-                      {['Available', 'Not Available'].map(opt => (
-                        <TouchableOpacity key={opt} style={[styles.optionButton, keyAvailable === opt && styles.optionButtonSelected]} onPress={() => setKeyAvailable(opt)} activeOpacity={0.7}>
-                          <RNText style={[styles.optionButtonText, keyAvailable === opt && styles.optionButtonTextSelected]}>{opt}</RNText>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                    {questionsList.length >= 2 && (
+                      <>
+                        <RNText style={styles.optionsLabel}>{questionsList[1]}</RNText>
+                        <View style={styles.optionsContainer}>
+                          {(secondOptions.length ? secondOptions : ['Available', 'Not Available']).map(opt => (
+                            <TouchableOpacity key={opt} style={[styles.optionButton, keyAvailable === opt && styles.optionButtonSelected]} onPress={() => setKeyAvailable(opt)} activeOpacity={0.7}>
+                              <RNText style={[styles.optionButtonText, keyAvailable === opt && styles.optionButtonTextSelected]}>{opt}</RNText>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </>
+                    )}
                   </>
                 )}
+
+                {/* ── CHASSIS PLATE: text input ── */}
                 {isChassisPlate && (
                   <>
-                    <RNText style={styles.optionsLabel}>{Array.isArray(questions) ? questions[0] : questions}</RNText>
+                    <RNText style={styles.optionsLabel}>{questionsList[0]}</RNText>
                     <TextInput style={styles.modalInput} placeholder="Chassis Plate" placeholderTextColor="#999" value={chassisPlate} onChangeText={setChassisPlate} />
                   </>
                 )}
+
+                {/* ── REGULAR CONDITION: option buttons ── */}
                 {!isOdometer && !isChassisPlate && (
                   <>
                     <RNText style={styles.optionsLabel}>Select an option:</RNText>
                     <View style={styles.optionsContainer}>
-                      {answers.map((answer: string, idx: number) => (
+                      {firstOptions.map((answer: string, idx: number) => (
                         <TouchableOpacity key={idx} style={[styles.optionButton, selectedAnswer === answer && styles.optionButtonSelected]} onPress={() => setSelectedAnswer(answer)} activeOpacity={0.7}>
                           <RNText style={[styles.optionButtonText, selectedAnswer === answer && styles.optionButtonTextSelected]}>{answer}</RNText>
                         </TouchableOpacity>
@@ -317,12 +325,14 @@ const ValuateCard = ({
       ToastAndroid.show("Please complete previous steps first", ToastAndroid.SHORT);
       return;
     }
+    const isSelfie = text.toLowerCase().includes('selfie');
     // @ts-ignore
     navigation.navigate("Camera", {
       id,
       side: text,
       vehicleType,
       appColumn: appColumn || text.replace(/\s/g, ''),
+      useFrontCamera: isSelfie,
     });
   };
 
@@ -340,10 +350,6 @@ const ValuateCard = ({
       ) : isDone ? (
         <>
           <Image style={styles.cardImage} source={{ uri: isDone }} resizeMode="cover" />
-          <View style={styles.retakeIndicator}>
-            <MaterialCommunityIcons name="camera-retake" size={16} color="#fff" />
-            <RNText style={styles.retakeText}>Retake</RNText>
-          </View>
         </>
       ) : uploadStatus === 'uploaded' ? (
         <View style={styles.capturedContainer}>
@@ -369,7 +375,13 @@ const ValuationPage = () => {
   const { getSideQuestion } = useQuestions();
 
   const { leadId, displayId, vehicleType, leadData } = route.params as RouteParams;
-  const { steps, isLoading, fetchSteps, reset, sideUploads, getSideUpload, markLocalCaptured } = useValuationStore();
+
+  // ── Store sirf sideUploads ke liye (Camera ↔ ValuationPage shared state) ──
+  const { sideUploads, getSideUpload, markLocalCaptured, reset } = useValuationStore();
+
+  // ── Steps local state (direct DB read, no store) ──
+  const [steps, setSteps] = useState<AppStepListDataRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [optionalInfoModalState, setOptionalInfoModalState] = useState({ open: false, Questions: "", Answer: "" });
   const [optionalInfoQuestionAnswer, setOptionalInfoQuestionAnswer] = useState<Record<string, string>>({});
@@ -381,12 +393,22 @@ const ValuationPage = () => {
   const [lastProcessedSide, setLastProcessedSide] = useState("");
   const processedSidesRef = useRef<Record<string, boolean>>({});
 
-  // ── Init ──────────────────────────────────────────────────────────────────
+  // ── Init: DB se steps load karo ────────────────────────────────────────────
 
   useEffect(() => {
     if (vehicleType) {
       console.log('[ValuationPage] Loading steps for:', vehicleType);
-      fetchSteps(vehicleType);
+      setIsLoading(true);
+      getAppSteps(vehicleType)
+        .then(data => {
+          setSteps(data || []);
+          setIsLoading(false);
+        })
+        .catch(err => {
+          console.error('[ValuationPage] Failed to load steps:', err);
+          setSteps([]);
+          setIsLoading(false);
+        });
     }
     processedSidesRef.current = {};
     setLastProcessedSide("");
@@ -487,10 +509,10 @@ const ValuationPage = () => {
   const isAllImagesCaptured = () => clickableImageSides.length > 0 && clickableImageSides.every(s => !!getClickedImage(s));
 
   const handleNextClick = () => {
-    if (!isAllImagesCaptured()) {
-      ToastAndroid.show("Please capture all images first", ToastAndroid.SHORT);
-      return;
-    }
+    // if (!isAllImagesCaptured()) {
+    //   ToastAndroid.show("Please capture all images first", ToastAndroid.SHORT);
+    //   return;
+    // }
     // @ts-ignore
     navigation.navigate("VehicleDetails", { carId: leadId, leadData, vehicleType });
   };
@@ -498,11 +520,10 @@ const ValuationPage = () => {
   // ✅ Video — Camera screen pe redirect (VideoCamera screen nahi hai navigator mein)
   const handleVideoNavigation = () => {
     // @ts-ignore
-    navigation.navigate("Camera", {
+    navigation.navigate("VideoRecorder", {
       id: leadId,
       side: "Video",
       vehicleType,
-      appColumn: "VideoBase64",
     });
   };
 
@@ -564,7 +585,7 @@ const ValuationPage = () => {
                   <View style={styles.infoRecordContainer}>
                     <RNText style={styles.infoRecordTitle}>Optional Information Record</RNText>
                     {optionalInfoItems.map((item, index) => {
-                      const qKey = Array.isArray(item.Questions) ? item.Questions.join(',') : (item.Questions || "");
+                      const qKey = item.Questions || "";
                       return (
                         <Selector
                           key={index + qKey}

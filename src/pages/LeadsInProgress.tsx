@@ -1,8 +1,10 @@
 import React, { useState, useCallback } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View, RefreshControl, ToastAndroid } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import NetInfo from "@react-native-community/netinfo";
 import { COLORS } from "../constants/Colors";
-import { getLeadsByStatus } from "../services/LeadService";
+import { getLeadsByStatus, fetchAndSaveLeadsByStatus } from "../services/LeadService";
+import { useAppStore } from "../store/AppStore";
 import { convertDateString } from "../utils/convertDateString";
 interface StatusLead {
   lead_uid: string;
@@ -13,8 +15,10 @@ interface StatusLead {
 }
 
 const LeadsInProgress = () => {
+  const { user } = useAppStore();
   const [leads, setLeads] = useState<StatusLead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadLeads = useCallback(async () => {
     try {
@@ -34,6 +38,25 @@ const LeadsInProgress = () => {
     }, [loadLeads])
   );
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected && user?.token) {
+        await fetchAndSaveLeadsByStatus(user.token, 'QCHoldLeads');
+        console.log('[LeadsInProgress] ✅ Refreshed from server');
+      } else {
+        ToastAndroid.show('Offline — showing cached data', ToastAndroid.SHORT);
+      }
+      await loadLeads();
+    } catch (e) {
+      console.error('[LeadsInProgress] Refresh error:', e);
+      ToastAndroid.show('Refresh failed', ToastAndroid.SHORT);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user?.token, loadLeads]);
+
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
@@ -43,7 +66,12 @@ const LeadsInProgress = () => {
   }
 
   return (
-    <ScrollView style={styles.screen}>
+    <ScrollView
+      style={styles.screen}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.AppTheme.primary]} />
+      }
+    >
       <View style={styles.pagePadding}>
         <View style={styles.container}>
           {leads.length > 0 ? (

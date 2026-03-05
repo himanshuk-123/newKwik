@@ -109,52 +109,7 @@ export const AREAS_TABLE = `
 `;
 // city_name — API se aata hai "SOUTH ANDAMAN" etc.
 
-export const LEADS_TABLE = `
-  CREATE TABLE IF NOT EXISTS leads (
-    id TEXT PRIMARY KEY,
-    lead_uid TEXT,
-    lead_id TEXT,
-    reg_no TEXT,
-    prospect_no TEXT,
-    customer_name TEXT,
-    customer_mobile TEXT,
-    company_id TEXT,
-    company_name TEXT,
-    vehicle TEXT,
-    vehicle_type_id TEXT,
-    vehicle_type_name TEXT,
-    vehicle_type_value TEXT,
-    state_id TEXT,
-    state_name TEXT,
-    city_id TEXT,
-    city_name TEXT,
-    area_id TEXT,
-    area_name TEXT,
-    client_city_id TEXT,
-    client_city_name TEXT,
-    pincode TEXT,
-    chassis_no TEXT,
-    engine_no TEXT,
-    status_id TEXT,
-    yard_name TEXT,
-    lead_report_id TEXT,
-    view_url TEXT,
-    download_url TEXT,
-    appointment_date TEXT,
-    added_by_date TEXT,
-    retail_bill_type TEXT,
-    retail_fees_amount REAL DEFAULT 0,
-    repo_bill_type TEXT,
-    repo_fees_amount REAL DEFAULT 0,
-    cando_bill_type TEXT,
-    cando_fees_amount REAL DEFAULT 0,
-    asset_bill_type TEXT,
-    valuator_name TEXT,
-    admin_ro TEXT,
-    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`;
-
+// NOTE: Old LEADS_TABLE removed — status_leads table handles all lead statuses generically
 
 export const PENDING_LEADS_TABLE = `
   CREATE TABLE IF NOT EXISTS pending_leads (
@@ -265,6 +220,47 @@ export const DAYBOOK_TABLE = `
 `;
 // AppLeadDaybook API ka data — valuation completed leads page ke counters
 
+// ─── DROPDOWN CACHE ─────────────────────────────────────────────────────────
+// FuelType, VehicleTypeMode, ColorsType — offline ke liye local cache
+export const DROPDOWN_CACHE_TABLE = `
+  CREATE TABLE IF NOT EXISTS dropdown_cache (
+    type TEXT NOT NULL,
+    category TEXT NOT NULL,
+    data TEXT NOT NULL,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (type, category)
+  );
+`;
+// type = 'FuelType' | 'VehicleTypeMode' | 'ColorsType'
+// category = vehicleTypeCategory e.g. "2W", "4W", "CV"
+// data = JSON.stringify(DataList) — array of {id, name, ...}
+
+// ─── CAR MMV CACHE ──────────────────────────────────────────────────────────
+// Make/Model/Variant cascading data — cache-as-you-go
+export const CAR_MMV_CACHE_TABLE = `
+  CREATE TABLE IF NOT EXISTS car_mmv_cache (
+    cache_key TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+// cache_key = '{year}_{make}_{model}_{actionType}' e.g. "2023__YEAR"
+// data = JSON.stringify(DataRecord || DataList)
+
+// ─── PENDING VEHICLE DETAILS ────────────────────────────────────────────────
+// VehicleDetails submit ke liye offline queue
+export const PENDING_VEHICLE_DETAILS_TABLE = `
+  CREATE TABLE IF NOT EXISTS pending_vehicle_details (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    payload TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    retry_count INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_tried_at DATETIME
+  );
+`;
+// Same pattern as pending_leads — LeadReportDataCreateedit API ke liye
+
 // ✅ Sab tables — states aur cities included
 export const TABLES = [
   USER_TABLE,
@@ -275,11 +271,13 @@ export const TABLES = [
   CITIES_TABLE,
   YARDS_TABLE,
   AREAS_TABLE,
-  LEADS_TABLE,
   STATUS_LEADS_TABLE,
   PENDING_LEADS_TABLE,
   SYNC_META_TABLE,
   APP_STEPS_TABLE,
   COMPLETED_LEADS_TABLE,
   DAYBOOK_TABLE,
+  DROPDOWN_CACHE_TABLE,
+  CAR_MMV_CACHE_TABLE,
+  PENDING_VEHICLE_DETAILS_TABLE,
 ];

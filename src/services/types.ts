@@ -266,6 +266,10 @@ export interface CreateLeadPayload {
   VehicleTypeValue: string;
   YardId: number;
   AutoAssign: number;
+  ExecutiveName: string;
+  ExecutiveMobile: string;
+  ExecutiveReportEmailId: string;
+  version?: string;
 }
 
 export interface CreateLeadResponse {
@@ -292,9 +296,9 @@ export interface AppStepListDataRecord {
   VehicleType?: string;
   Images?: boolean;
   Display?: number;
-  Questions?: string | string[] | null;
-  Answer?: string | null;
-  Appcolumn?: string;
+  Questions?: string | null;  // "~" separated e.g. "Enter Odometer Reading~Check Availability of Key"
+  Answer?: string | null;     // "/" separated e.g. "Good/Average/Bad" or "~Available/Not Available"
+  Appcolumn?: string | null;
 }
 
 export interface AppStepListResponse {

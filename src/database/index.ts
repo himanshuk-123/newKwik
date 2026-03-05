@@ -1,7 +1,6 @@
 // ✅ FIX: Added runBatch to exports — it was missing, would cause import errors
 export { initDb, getDb, closeDb, select, run, runBatch } from './db';
 export * from './schemas';
-export { leadQueries } from './leads.db';
 export {
   companyQueries,
   vehicleTypeQueries,

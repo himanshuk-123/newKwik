@@ -20,11 +20,11 @@ export const fetchCityAreaListApi = (
 export const fetchAreasForCity = async (
   token: string,
   cityId: string
-): Promise<{ id: string; name: string }[]> => {
+): Promise<{ id: string; name: string; pincode: string }[]> => {
   try {
     // Pehle DB se check karo
-    const cached = await select<{ id: string; name: string }>(
-      'SELECT id, name FROM areas WHERE city_id = ? ORDER BY name',
+    const cached = await select<{ id: string; name: string; pincode: string }>(
+      'SELECT id, name, pincode FROM areas WHERE city_id = ? ORDER BY name',
       [cityId]
     );
     if (cached.length > 0) return cached;
@@ -37,7 +37,7 @@ export const fetchAreasForCity = async (
       'INSERT OR REPLACE INTO areas (id, name, pincode, city_id, city_name) VALUES (?, ?, ?, ?, ?)',
       res.DataRecord.map(a => [String(a.id), a.name, a.pincode ?? '', cityId, a.cityname ?? ''])
     );
-    return res.DataRecord.map(a => ({ id: String(a.id), name: a.name }));
+    return res.DataRecord.map(a => ({ id: String(a.id), name: a.name, pincode: a.pincode ?? '' }));
   } catch (e) {
     console.error(`[AREA] City ${cityId} failed:`, e);
     return [];

@@ -1,9 +1,11 @@
 /**
- * useQuestions Hook - Stub for offline mode
- * Questionnaire processing disabled for now
+ * useQuestions Hook
+ *
+ * Steps array mein se side ke questions dhundhta hai.
+ * Questions "~" separated aate hain, Answer bhi "~" per-question, "/" per-option.
  */
 
-import { AppStepListDataRecord } from '../store/valuation.store';
+import type { AppStepListDataRecord } from '../services/types';
 
 interface GetSideQuestionParams {
   data: AppStepListDataRecord[];
@@ -12,11 +14,23 @@ interface GetSideQuestionParams {
 }
 
 const useQuestions = () => {
+  /**
+   * Side name se matching step dhundhta hai.
+   * Agar Questions non-empty hai toh step return karta hai, warna null.
+   */
   const getSideQuestion = (params: GetSideQuestionParams): AppStepListDataRecord | null => {
-    console.log('[useQuestions] getSideQuestion called (disabled in offline mode)');
-    // Feature disabled - will enable later
-    // For now, return null to skip question modals
-    return null;
+    const { data, nameInApplication } = params;
+    if (!data?.length || !nameInApplication) return null;
+
+    const match = data.find(
+      s => (s.Name || '').toLowerCase().trim() === nameInApplication.toLowerCase().trim()
+    );
+
+    if (!match) return null;
+
+    // Agar Questions empty hai toh koi modal nahi dikhana
+    const hasQuestions = (match.Questions || '').split('~').some(q => q.trim().length > 0);
+    return hasQuestions ? match : null;
   };
 
   return { getSideQuestion };

@@ -5,11 +5,11 @@
 
 import React from "react";
 import { NavigationContainer } from "@react-navigation/native";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { createStackNavigator } from "@react-navigation/stack";
 import { useAppStore } from "../store/AppStore";
 import LoginPage from "../pages/LoginPage";
 import AppNavigator from "./AppNavigator";
-const Stack = createNativeStackNavigator();
+const Stack = createStackNavigator();
 
 const screenOptions = {
   headerShown: true,

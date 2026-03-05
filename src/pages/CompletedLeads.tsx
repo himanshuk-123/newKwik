@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View, Dimensions } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, RefreshControl, ToastAndroid } from "react-native";
 // @ts-ignore
 import MaterialIcons from "react-native-vector-icons/MaterialIcons";
 // @ts-ignore
@@ -9,9 +9,10 @@ import ClubSvg from "../assets/Club-svg";
 import HSVG from "../assets/H-Svg";
 import { useNavigation } from "@react-navigation/native";
 import { useFocusEffect } from "@react-navigation/native";
-import { getCompletedLeads } from "../services/AppLeadCompleted";
+import NetInfo from "@react-native-community/netinfo";
+import { getCompletedLeads, fetchAndSaveCompletedLeads } from "../services/AppLeadCompleted";
+import { useAppStore } from "../store/AppStore";
 import type { AppLeadCompletedDataRecord } from "../services/types";
-const { width } = Dimensions.get("window");
 
 const DEFAULT_LEADS_DATA: AppLeadCompletedDataRecord = {
   qcpending: 0,
@@ -45,9 +46,11 @@ const LeadCard = ({ title, count, icon, onPress }: LeadCardProps) => {
 
 export default function CompletedLeads() {
   const navigation = useNavigation<any>();
+  const { user } = useAppStore();
   const [leadsData, setLeadsData] = useState<AppLeadCompletedDataRecord>(DEFAULT_LEADS_DATA);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const handleNavigation = (pageName: string) => {
     console.log("Navigate to:", pageName);
@@ -85,8 +88,33 @@ export default function CompletedLeads() {
 
   useFocusEffect(loadData);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected && user?.token) {
+        await fetchAndSaveCompletedLeads(user.token);
+        console.log('[CompletedLeads] ✅ Refreshed from server');
+      } else {
+        ToastAndroid.show('Offline — showing cached data', ToastAndroid.SHORT);
+      }
+      loadData();
+    } catch (e) {
+      console.error('[CompletedLeads] Refresh error:', e);
+      ToastAndroid.show('Refresh failed', ToastAndroid.SHORT);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user?.token, loadData]);
+
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.scrollContent}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.AppTheme.primary]} />
+      }
+    >
       {isLoading && (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color={COLORS.AppTheme.primary} />
@@ -134,7 +162,7 @@ export default function CompletedLeads() {
           onPress={() => handleNavigation("ValuationCompletedLeads")}
         />
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
@@ -142,6 +170,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "white",
+  },
+  scrollContent: {
     paddingVertical: 15,
     paddingHorizontal: 10,
   },

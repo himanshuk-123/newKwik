@@ -110,8 +110,10 @@ export const fetchAndSaveLeadsByStatus = async (
   statusType: LeadStatusType
 ): Promise<number> => {
   const statusId = Number(LEAD_STATUS_ID_MAP[statusType]);
+  console.log(`[LEAD] Fetching for status: ${statusType} (StatusId: ${statusId})`);
+  console.log('Token:', token);
   const res = await fetchLeadListStatuswiseApi(token, { StatusId: statusId });
-
+console.log(`Response of ${statusType}: `,res);
   if (res.Error !== '0' || !res.DataRecord?.length) {
     console.log(`[LEAD] ${statusType}: no data or error:`, res.Error, res.MESSAGE);
     return 0;
@@ -145,93 +147,6 @@ export const fetchAndSaveAllStatusLeads = async (token: string): Promise<void> =
   console.log(`[LEAD] All statuses synced. Total records: ${total}`);
 };
 
-// ─── DB SAVE (old leads table — StatusId 0 = all) ────────────────────────────
-
-export const saveLeads = async (token: string): Promise<number> => {
-  const res = await fetchLeadListStatuswiseApi(token, { StatusId: 3 });
-  if (res.Error !== '0' || !res.DataRecord?.length) {
-    console.log('[LEAD] No data or error:', res.Error, res.MESSAGE);
-    return 0;
-  }
-
-  await run('DELETE FROM leads');
-
-  await runBatch(
-    `INSERT OR REPLACE INTO leads (
-      id, lead_uid, lead_id, reg_no, prospect_no,
-      customer_name, customer_mobile, company_id, company_name,
-      vehicle, vehicle_type_id, vehicle_type_name, vehicle_type_value,
-      state_id, state_name, city_id, city_name,
-      area_id, area_name, client_city_id, client_city_name,
-      pincode, chassis_no, engine_no, status_id,
-      yard_name, lead_report_id, view_url, download_url,
-      appointment_date, added_by_date,
-      retail_bill_type, retail_fees_amount,
-      repo_bill_type, repo_fees_amount,
-      cando_bill_type, cando_fees_amount,
-      asset_bill_type, valuator_name, admin_ro
-    ) VALUES (
-      ?,?,?,?,?,
-      ?,?,?,?,
-      ?,?,?,?,
-      ?,?,?,?,
-      ?,?,?,?,
-      ?,?,?,?,
-      ?,?,?,?,
-      ?,?,
-      ?,?,
-      ?,?,
-      ?,?,
-      ?,?,?
-    )`,
-    res.DataRecord.map(l => [
-      String(l.Id),
-      l.LeadUId ?? '',
-      l.LeadId ?? '',
-      l.RegNo ?? '',
-      l.ProspectNo ?? '',
-      l.CustomerName?.trim() ?? '',
-      l.CustomerMobileNo ?? '',
-      String(l.CompanyId ?? ''),
-      l.companyname ?? '',
-      l.Vehicle ?? '',
-      String(l.VehicleType ?? ''),
-      l.LeadTypeName ?? '',
-      l.VehicleTypeValue ?? '',
-      String(l.StateId ?? ''),
-      l.statename ?? '',
-      String(l.City ?? ''),
-      l.cityname ?? '',
-      String(l.Area ?? ''),
-      l.areaname ?? '',
-      String(l.ClientCityId ?? ''),
-      l.Clientcityname ?? '',
-      l.Pincode ?? '',
-      l.ChassisNo ?? '',
-      l.EngineNo ?? '',
-      String(l.StatusId ?? ''),
-      l.YardName ?? '',
-      l.LeadReportId ? String(l.LeadReportId) : '',
-      l.ViewUrl ?? '',
-      l.DownLoadUrl ?? '',
-      l.AppointmentDate ?? '',
-      l.AddedByDate ?? '',
-      String(l.RetailBillType ?? ''),
-      l.RetailFeesAmount ?? 0,
-      String(l.RepoBillType ?? ''),
-      l.RepoFeesAmount ?? 0,
-      String(l.CandoBillType ?? ''),
-      l.CandoFeesAmount ?? 0,
-      String(l.AssetBillType ?? ''),
-      l.ValuatorName ?? '',
-      l.AdminRo ?? '',
-    ])
-  );
-
-  console.log(`[LEAD] Saved: ${res.DataRecord.length} (total: ${res.TotalCount})`);
-  return res.DataRecord.length;
-};
-
 // ─── DB GET ──────────────────────────────────────────────────────────────────
 
 /** status_leads table se data — statusType ke basis par */
@@ -242,20 +157,6 @@ export const getLeadsByStatus = async (statusType: LeadStatusType): Promise<any[
   );
 };
 
-/** Old leads table se — backward compatibility */
-export const getLeads = async (statusId?: string): Promise<any[]> => {
-  if (statusId) {
-    return select('SELECT * FROM leads WHERE status_id = ? ORDER BY added_by_date DESC', [statusId]);
-  }
-  return select('SELECT * FROM leads ORDER BY added_by_date DESC');
-};
-
-export const getLeadsByVehicleType = async (): Promise<{ id: string; vehicle_type_value: string }[]> => {
-  return select(
-    'SELECT id, vehicle_type_value FROM leads WHERE vehicle_type_value IS NOT NULL AND vehicle_type_value != ""'
-  );
-};
-
 // ─── PENDING LEADS ───────────────────────────────────────────────────────────
 
 export const syncPendingLeads = async (
@@ -263,7 +164,7 @@ export const syncPendingLeads = async (
   submitFn: (payload: any) => Promise<{ ERROR: string; MESSAGE: string }>
 ): Promise<void> => {
   const pending = await select<{ id: number; payload: string; retry_count: number }>(
-    "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 3"
+    "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 9"
   );
   if (!pending.length) return;
   console.log(`[LEAD] Pending leads: ${pending.length}`);

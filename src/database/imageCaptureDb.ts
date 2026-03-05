@@ -26,6 +26,10 @@ export interface CapturedImage {
   local_path: string;     // RNFS file path (file:// URI)
   upload_status: 'pending' | 'uploading' | 'uploaded' | 'failed';
   retry_count: number;
+  media_type: 'image' | 'video';  // image ya video
+  latitude: string | null;        // GPS lat at capture moment (string like old app)
+  longitude: string | null;       // GPS long at capture moment (string like old app)
+  captured_at: string | null;     // ISO timestamp at exact capture moment
   created_at: string;
   uploaded_at: string | null;
 }
@@ -60,17 +64,21 @@ export const saveImageCapture = async (params: {
   side: string;
   appColumn: string;
   localPath: string;
+  mediaType?: 'image' | 'video';
+  latitude?: string | null;
+  longitude?: string | null;
+  capturedAt?: string | null;   // ISO timestamp — exact capture moment
 }): Promise<void> => {
-  const { leadId, side, appColumn, localPath } = params;
+  const { leadId, side, appColumn, localPath, mediaType = 'image', latitude = null, longitude = null, capturedAt = null } = params;
 
   await run(
     `INSERT OR REPLACE INTO image_captures
-      (lead_id, side, app_column, local_path, upload_status, retry_count, created_at, uploaded_at)
-     VALUES (?, ?, ?, ?, 'pending', 0, CURRENT_TIMESTAMP, NULL)`,
-    [leadId, side, appColumn, localPath]
+      (lead_id, side, app_column, local_path, upload_status, retry_count, media_type, latitude, longitude, captured_at, created_at, uploaded_at)
+     VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, CURRENT_TIMESTAMP, NULL)`,
+    [leadId, side, appColumn, localPath, mediaType, latitude, longitude, capturedAt]
   );
 
-  console.log(`[ImageDB] Saved: ${side} for lead ${leadId}`);
+  console.log(`[ImageDB] Saved: ${side} (${mediaType}) for lead ${leadId}`, { latitude, longitude, capturedAt });
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +102,6 @@ export const getPendingImages = async (): Promise<CapturedImage[]> => {
   return select<CapturedImage>(
     `SELECT * FROM image_captures
      WHERE upload_status IN ('pending', 'failed')
-     AND retry_count < 3
      ORDER BY created_at ASC`
   );
 };
@@ -149,13 +156,31 @@ export const getImageStats = async (): Promise<{
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RECOVERY — App restart par stuck 'uploading' wale reset karo
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const resetStuckUploads = async (): Promise<number> => {
+  await run(
+    "UPDATE image_captures SET upload_status = 'pending' WHERE upload_status = 'uploading'"
+  );
+  const rows = await select<{ count: number }>(
+    `SELECT changes() as count`
+  );
+  const count = rows[0]?.count ?? 0;
+  if (count > 0) {
+    console.log(`[imageCaptureDb] ♻️ Reset ${count} stuck 'uploading' → 'pending'`);
+  }
+  return count;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PENDING COUNT — Badge ke liye
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const getPendingCount = async (): Promise<number> => {
   const rows = await select<{ count: number }>(
     `SELECT COUNT(*) as count FROM image_captures
-     WHERE upload_status IN ('pending', 'failed') AND retry_count < 3`
+     WHERE upload_status IN ('pending', 'failed')`
   );
   return rows[0]?.count ?? 0;
 };
@@ -169,7 +194,7 @@ export const getPendingCountByLead = async (): Promise<
 > => {
   const rows = await select<{ lead_id: string; count: number }>(
     `SELECT lead_id, COUNT(*) as count FROM image_captures
-     WHERE upload_status IN ('pending', 'failed') AND retry_count < 3
+     WHERE upload_status IN ('pending', 'failed')
      GROUP BY lead_id
      ORDER BY count DESC`
   );
@@ -179,7 +204,7 @@ export const getPendingCountByLead = async (): Promise<
 export const getPendingCountForLead = async (leadId: string): Promise<number> => {
   const rows = await select<{ count: number }>(
     `SELECT COUNT(*) as count FROM image_captures
-     WHERE lead_id = ? AND upload_status IN ('pending', 'failed') AND retry_count < 3`,
+     WHERE lead_id = ? AND upload_status IN ('pending', 'failed')`,
     [leadId]
   );
   return rows[0]?.count ?? 0;

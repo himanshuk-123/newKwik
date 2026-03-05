@@ -1,4 +1,4 @@
-const BASE_URL = 'https://inspection.kwikcheck.in/App/webservice';
+const BASE_URL = 'https://uat.kwikcheck.in/App/webservice';
 
 export const apiPost = async (
   endpoint: string,

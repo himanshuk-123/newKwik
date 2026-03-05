@@ -109,6 +109,39 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ` },
+  { version: 24, sql: `ALTER TABLE image_captures ADD COLUMN media_type TEXT DEFAULT 'image'` },
+  { version: 25, sql: `
+    CREATE TABLE IF NOT EXISTS dropdown_cache (
+      type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      data TEXT NOT NULL,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (type, category)
+    )
+  ` },
+  { version: 26, sql: `
+    CREATE TABLE IF NOT EXISTS car_mmv_cache (
+      cache_key TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      synced_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  ` },
+  { version: 27, sql: `
+    CREATE TABLE IF NOT EXISTS pending_vehicle_details (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      payload TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      retry_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      last_tried_at DATETIME
+    )
+  ` },
+  // v28 — Geo location + exact capture timestamp for image/video uploads
+  { version: 28, sql: `ALTER TABLE image_captures ADD COLUMN latitude REAL DEFAULT NULL` },
+  { version: 29, sql: `ALTER TABLE image_captures ADD COLUMN longitude REAL DEFAULT NULL` },
+  { version: 30, sql: `ALTER TABLE image_captures ADD COLUMN captured_at TEXT DEFAULT NULL` },
+  // v31 — Profile image column for users table
+  { version: 31, sql: `ALTER TABLE users ADD COLUMN profile_image TEXT DEFAULT NULL` },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

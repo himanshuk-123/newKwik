@@ -14,102 +14,206 @@
  */
 
 import RNFS from 'react-native-fs';
+import axios from 'axios';
 import { getPendingImages, markUploading, markUploaded, markFailed, CapturedImage } from '../database/imageCaptureDb';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
-// API
+// API — Axios instance (timeout + maxBody like old expo)
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BASE_URL = 'https://inspection.kwikcheck.in/App/webservice';
 
+const uploadAxios = axios.create({
+  baseURL: BASE_URL,
+  timeout: 60000,              // 60s — large base64 images ko time chahiye
+  maxBodyLength: Infinity,     // Body size limit hatao
+  maxContentLength: Infinity,  // Response size limit hatao
+  headers: {
+    'Content-Type': 'application/json',
+    'accept': 'application/json',
+  },
+});
+
 interface UploadResponse {
-  ERROR: string;
+  ERRORCODE: string;
   MESSAGE: string;
 }
 
 /**
  * DocumentUploadOtherImageApp
- * Dynamic field: { [image.app_column]: base64String }
- * e.g. { "FrontSideBase64": "/9j/4AAQ..." }
+ * Dynamic field: { [Appcolumn + 'Base64']: base64String }
+ * e.g. { "OdomerterBase64": "/9j/4AAQ...", "InteriorDashBoardImgBase64": "/9j/..." }
  */
 const uploadImageApi = async (
   token: string,
   image: CapturedImage,
   base64: string
 ): Promise<UploadResponse> => {
-  const payload = {
+  const imageBase64field = image.app_column + 'Base64';
+  const base64SizeMB = (base64.length * 0.75 / 1024 / 1024).toFixed(2);
+  const payload: Record<string, any> = {
     LeadId: image.lead_id,
     TOKENID: token,
     Version: '2',
-    [image.app_column]: base64,      // ← Dynamic field from AppColumn
+    [imageBase64field]: base64,      // ← Dynamic field: Appcolumn + 'Base64'
+    geolocation: {
+      lat: image.latitude ?? '0',
+      long: image.longitude ?? '0',
+      timeStamp: image.captured_at ?? '',
+    },
   };
 
-  // Log request details
-  console.log('[API] 📤 REQUEST DETAILS:', {
-    url: `${BASE_URL}/DocumentUploadOtherImageApp`,
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'TokenID': `${token.substring(0, 20)}...`,  // Hide full token
-      'version': '6',
-    },
-    payload: {
-      LeadId: payload.LeadId,
-      TOKENID: `${token.substring(0, 20)}...`,
-      Version: payload.Version,
-      [image.app_column]: `<BASE64: ${base64.length} bytes>`,  // Don't log full base64
-    }
+  // Log request details — field name EXACT match actual payload
+  console.log('[API] 📤 UPLOAD REQUEST:', {
+    url: `/DocumentUploadOtherImageApp`,
+    fieldName: imageBase64field,       // ← ACTUAL field name being sent
+    LeadId: payload.LeadId,
+    geolocation: payload.geolocation,
+    base64Size: `${base64SizeMB} MB (${base64.length} chars)`,
+    base64Preview: base64.substring(0, 50) + '...',
   });
 
   try {
-    const response = await fetch(`${BASE_URL}/DocumentUploadOtherImageApp`, {
-      method: 'POST',
+    const response = await uploadAxios.post('/DocumentUploadOtherImageApp', payload, {
       headers: {
-        'Content-Type': 'application/json',
         'TokenID': token,
         'version': '6',
       },
-      body: JSON.stringify(payload),
     });
 
-    console.log('[API] 📥 RESPONSE STATUS:', response.status, response.statusText);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('[API] ❌ HTTP ERROR:', {
-        status: response.status,
-        statusText: response.statusText,
-        responseBody: errorText
-      });
-      throw new Error(`HTTP ${response.status}: ${errorText}`);
-    }
-
-    const data = await response.json();
-    console.log('[API] ✅ RESPONSE DATA:', data);
-    return data;
+    console.log('[API] 📥 RESPONSE:', response.status, response.data);
+    return response.data;
 
   } catch (error: any) {
-    console.error('[API] ❌ FETCH ERROR:', {
-      message: error?.message,
-      code: error?.code,
-      type: error?.name,
-      url: `${BASE_URL}/DocumentUploadOtherImageApp`,
-    });
-    throw error;
+    // Axios error details — server response, timeout, network etc.
+    if (error.response) {
+      // Server responded with non-2xx
+      console.error('[API] ❌ SERVER ERROR:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data,
+        fieldName: imageBase64field,
+        leadId: image.lead_id,
+      });
+      throw new Error(`HTTP ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+    } else if (error.code === 'ECONNABORTED') {
+      // Timeout
+      console.error('[API] ⏰ TIMEOUT:', {
+        message: 'Upload timed out after 60s',
+        fieldName: imageBase64field,
+        leadId: image.lead_id,
+        base64Size: `${base64SizeMB} MB`,
+      });
+      throw new Error(`Upload timeout (${base64SizeMB} MB image)`);
+    } else {
+      // Network error / other
+      console.error('[API] ❌ NETWORK ERROR:', {
+        message: error?.message,
+        code: error?.code,
+        fieldName: imageBase64field,
+        leadId: image.lead_id,
+      });
+      throw error;
+    }
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SINGLE IMAGE UPLOAD
+// VIDEO UPLOAD — multipart/form-data (base64 nahi, file directly)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * DocumentUploadVideo
+ * Multipart form-data: { LeadId, Video1 (mp4 file), TokenID, Version }
+ * Video ko base64 mein convert NAHI karte — file directly bhejte hain
+ */
+const uploadVideoApi = async (
+  token: string,
+  image: CapturedImage
+): Promise<UploadResponse> => {
+  const filePath = image.local_path.replace('file://', '');
+
+  // File size check
+  const stat = await RNFS.stat(filePath);
+  const sizeMB = (Number(stat.size) / 1024 / 1024).toFixed(2);
+
+  // Cloudflare enforces 100MB upload limit
+  if (Number(sizeMB) > 100) {
+    console.error(`[API] ❌ Video too large: ${sizeMB} MB (max 100MB)`);
+    throw new Error(`Video file too large: ${sizeMB}MB. Max allowed is 100MB. Please re-record.`);
+  }
+
+  console.log('[API] 📤 VIDEO UPLOAD REQUEST:', {
+    url: '/DocumentUploadVideo',
+    LeadId: image.lead_id,
+    fileSize: `${sizeMB} MB`,
+  });
+
+  const formData = new FormData();
+  formData.append('LeadId', image.lead_id);
+  formData.append('TokenID', token);
+  formData.append('Version', '2');
+  formData.append('Video1', {
+    uri: image.local_path,
+    type: 'video/mp4',
+    name: 'Video.mp4',
+  } as any);
+
+  try {
+    const response = await axios.post(`${BASE_URL}/DocumentUploadVideo`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        'Accept': '*/*',
+        'TokenID': token,
+        'Version': '2',
+      },
+      timeout: 180000,              // 3 min — large video upload ko time chahiye
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+
+    console.log('[API] 📥 VIDEO RESPONSE:', response.status, response.data);
+    return response.data;
+
+  } catch (error: any) {
+    if (error.response) {
+      console.error('[API] ❌ VIDEO SERVER ERROR:', {
+        status: error.response.status,
+        data: error.response.data,
+        leadId: image.lead_id,
+      });
+      throw new Error(`HTTP ${error.response.status}: ${JSON.stringify(error.response.data)}`);
+    } else if (error.code === 'ECONNABORTED') {
+      console.error('[API] ⏰ VIDEO TIMEOUT:', {
+        message: 'Video upload timed out after 120s',
+        leadId: image.lead_id,
+        fileSize: `${sizeMB} MB`,
+      });
+      throw new Error(`Video upload timeout (${sizeMB} MB)`);
+    } else {
+      console.error('[API] ❌ VIDEO NETWORK ERROR:', {
+        message: error?.message,
+        leadId: image.lead_id,
+      });
+      throw error;
+    }
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SINGLE IMAGE/VIDEO UPLOAD
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const uploadSingleImage = async (
   token: string,
   image: CapturedImage
 ): Promise<boolean> => {
+  const isVideo = image.media_type === 'video';
+  const fieldName = isVideo ? 'Video1' : (image.app_column + 'Base64');
   try {
-    console.log(`[Upload] Starting: ${image.side} (id: ${image.id}, lead: ${image.lead_id})`);
+    console.log(`[Upload] ━━━ Starting: ${image.side} (${isVideo ? 'VIDEO' : 'IMAGE'}) ━━━`);
+    console.log(`[Upload] id: ${image.id}, lead: ${image.lead_id}, field: ${fieldName}`);
     await markUploading(image.id);
 
     // File exists check
@@ -120,32 +224,40 @@ export const uploadSingleImage = async (
       await markFailed(image.id);
       return false;
     }
-    console.log(`[Upload] ✅ File exists: ${filePath}`);
 
-    // Read as Base64
-    const base64 = await RNFS.readFile(filePath, 'base64');
-    console.log(`[Upload] ✅ Base64 converted, size: ${base64.length} bytes`);
+    let res: UploadResponse;
 
-    // Upload
-    console.log(`[Upload] 📤 Uploading to server...`);
-    const res = await uploadImageApi(token, image, base64);
+    if (isVideo) {
+      // VIDEO → multipart/form-data (file directly, no base64)
+      res = await uploadVideoApi(token, image);
+    } else {
+      // IMAGE → base64 JSON body
+      const base64 = await RNFS.readFile(filePath, 'base64');
+      const sizeMB = (base64.length * 0.75 / 1024 / 1024).toFixed(2);
+      console.log(`[Upload] ✅ Base64 ready: ${sizeMB} MB (${base64.length} chars)`);
+      res = await uploadImageApi(token, image, base64);
+    }
 
-    if (res.ERROR === '0') {
+    if (res.ERRORCODE === '0') {
       await markUploaded(image.id);
-      console.log(`[Upload] ✅ SUCCESS: ${image.side} uploaded (lead: ${image.lead_id})`);
+      console.log(`[Upload] ✅ SUCCESS: ${image.side} → ${fieldName} (lead: ${image.lead_id})`);
       return true;
     } else {
       await markFailed(image.id);
-      console.warn(`[Upload] ❌ SERVER ERROR: ${image.side} → ${res.MESSAGE}`);
+      console.warn(`[Upload] ❌ SERVER REJECTED: ${image.side}`, {
+        field: fieldName,
+        leadId: image.lead_id,
+        error: res.ERRORCODE,
+        message: res.MESSAGE,
+      });
       return false;
     }
   } catch (e: any) {
     await markFailed(image.id);
-    console.error(`[Upload] ❌ EXCEPTION ${image.side}:`, {
+    console.error(`[Upload] ❌ FAILED: ${image.side} (${fieldName})`, {
       message: e?.message,
       code: e?.code,
-      type: e?.name,
-      fullError: e
+      leadId: image.lead_id,
     });
     return false;
   }
@@ -226,14 +338,66 @@ export const saveImageLocally = async (params: {
     await RNFS.mkdir(dir);
   }
 
-  // File name — side name se (spaces remove, lowercase)
+  // File name — side name + timestamp for cache busting on retake
   const safeSideName = side.replace(/\s+/g, '_').toLowerCase();
-  const destPath = `${dir}/${safeSideName}.jpg`;
+  const timestamp = Date.now();
+  const destPath = `${dir}/${safeSideName}_${timestamp}.jpg`;
+
+  // Delete old file for this side (if retake)
+  const dirFiles = await RNFS.readDir(dir);
+  for (const f of dirFiles) {
+    if (f.name.startsWith(safeSideName) && f.name.endsWith('.jpg') && f.path !== destPath) {
+      await RNFS.unlink(f.path).catch(() => {});
+    }
+  }
 
   // Copy temp file to permanent location
   const sourcePath = tempUri.replace('file://', '');
   await RNFS.copyFile(sourcePath, destPath);
 
   console.log(`[ImageSave] Saved ${side} → ${destPath}`);
+  return `file://${destPath}`;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SAVE VIDEO TO LOCAL STORAGE
+// Camera se recorded video → RNFS mein save karo
+// Returns: local file path (file:// URI)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const saveVideoLocally = async (params: {
+  leadId: string;
+  side: string;
+  tempUri: string;   // Camera se mila temporary URI
+}): Promise<string> => {
+  const { leadId, side, tempUri } = params;
+
+  const dir = `${RNFS.DocumentDirectoryPath}/kwikcheck/leads/${leadId}`;
+
+  const dirExists = await RNFS.exists(dir);
+  if (!dirExists) {
+    await RNFS.mkdir(dir);
+  }
+
+  const safeSideName = side.replace(/\s+/g, '_').toLowerCase();
+  const timestamp = Date.now();
+  const destPath = `${dir}/${safeSideName}_${timestamp}.mp4`;
+
+  // Delete old video for this side (if retake)
+  const dirFiles = await RNFS.readDir(dir);
+  for (const f of dirFiles) {
+    if (f.name.startsWith(safeSideName) && f.name.endsWith('.mp4') && f.path !== destPath) {
+      await RNFS.unlink(f.path).catch(() => {});
+    }
+  }
+
+  // Copy temp file to permanent location
+  const sourcePath = tempUri.replace('file://', '');
+  await RNFS.copyFile(sourcePath, destPath);
+
+  // Get file size for logging
+  const stat = await RNFS.stat(destPath);
+  const sizeMB = (Number(stat.size) / 1024 / 1024).toFixed(2);
+  console.log(`[VideoSave] Saved ${side} → ${destPath} (${sizeMB} MB)`);
   return `file://${destPath}`;
 };

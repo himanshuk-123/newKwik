@@ -9,7 +9,7 @@
  *   Offline → pending_leads table → background sync karega
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -55,6 +55,7 @@ interface FormData {
   area_id: string;
   area_name: string;
   customer_pin: string;
+  customer_address: string;
   yard_id: string;
   yard_name: string;
   chassis_no: string;
@@ -68,6 +69,20 @@ interface DropdownItem {
 interface VehicleTypeItem extends DropdownItem {
   vehicle_categories: string; // "2W,3W" — name1 from API
 }
+
+interface AreaItem extends DropdownItem {
+  pincode: string;
+}
+
+// Old app hardcoded categories — fallback when vehicle_categories is empty
+const VEHICLE_CATEGORIES_FALLBACK: DropdownItem[] = [
+  { id: '0', name: '2W' },
+  { id: '1', name: '3W' },
+  { id: '2', name: '4W' },
+  { id: '3', name: 'FE' },
+  { id: '4', name: 'CV' },
+  { id: '5', name: 'CE' },
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INITIAL STATE
@@ -83,6 +98,7 @@ const INITIAL_FORM: FormData = {
   city_id: '', city_name: '',
   area_id: '', area_name: '',
   customer_pin: '',
+  customer_address: '',
   yard_id: '', yard_name: '',
   chassis_no: '',
 };
@@ -102,7 +118,7 @@ const CreateLeads = () => {
   const [vehicleTypes, setVehicleTypes] = useState<VehicleTypeItem[]>([]);
   const [vehicleCategories, setVehicleCategories] = useState<DropdownItem[]>([]);
   const [customerCities, setCustomerCities] = useState<DropdownItem[]>([]);
-  const [areas, setAreas] = useState<DropdownItem[]>([]);
+  const [areas, setAreas] = useState<AreaItem[]>([]);
   const [yards, setYards] = useState<DropdownItem[]>([]);
 
   // Constants se seedha — no DB/API needed
@@ -124,6 +140,25 @@ const CreateLeads = () => {
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadingDropdown, setLoadingDropdown] = useState('');
+
+  // ── Auto-sync modal items when source data loads while modal is open ──
+  useEffect(() => {
+    if (!showModal) return;
+    const fieldDataMap: Record<string, DropdownItem[]> = {
+      company: companies,
+      vehicle_type: vehicleTypes,
+      vehicle_category: vehicleCategories.length > 0 ? vehicleCategories : VEHICLE_CATEGORIES_FALLBACK,
+      state: states,
+      city: customerCities,
+      area: areas,
+      client_city: clientCities,
+      yard: yards,
+    };
+    if (fieldDataMap[activeField]) {
+      setModalItems(fieldDataMap[activeField]);
+    }
+  }, [showModal, activeField, companies, vehicleTypes, vehicleCategories, states, customerCities, areas, clientCities, yards]);
 
   // ── Load companies on focus ─────────────────────────────────────────────
 
@@ -200,6 +235,7 @@ const CreateLeads = () => {
           vehicle_type_id: item.id,
           vehicle_type_name: item.name,
           vehicle_category: cats.length === 1 ? cats[0].name : '', // auto-select if only one
+          area_id: '', area_name: '', customer_pin: '', customer_address: '',
         });
         break;
       }
@@ -214,6 +250,7 @@ const CreateLeads = () => {
           city_id: '', city_name: '',
           area_id: '', area_name: '',
           yard_id: '', yard_name: '',
+          customer_pin: '', customer_address: '',
         });
         setCustomerCities([]);
         setAreas([]);
@@ -223,14 +260,20 @@ const CreateLeads = () => {
         break;
 
       case 'city':
-        setField({ city_id: item.id, city_name: item.name, area_id: '', area_name: '' });
+        setField({ city_id: item.id, city_name: item.name, area_id: '', area_name: '', customer_pin: '' });
         setAreas([]);
         await loadAreas(item.id);
         break;
 
-      case 'area':
-        setField({ area_id: item.id, area_name: item.name });
+      case 'area': {
+        const areaItem = item as AreaItem;
+        setField({
+          area_id: item.id,
+          area_name: item.name,
+          customer_pin: areaItem.pincode || '',
+        });
         break;
+      }
 
       case 'client_city':
         setField({ client_city_id: item.id, client_city_name: item.name });
@@ -245,6 +288,7 @@ const CreateLeads = () => {
   // ── DB Loaders ──────────────────────────────────────────────────────────
 
   const loadVehicleTypes = async (companyId: string) => {
+    setLoadingDropdown('vehicle_type');
     try {
       // vehicle_types: id, company_id, name, vehicle_categories
       const rows = await select<VehicleTypeItem>(
@@ -259,6 +303,8 @@ const CreateLeads = () => {
       }
     } catch (e) {
       console.error('[CreateLeads] loadVehicleTypes error:', e);
+    } finally {
+      setLoadingDropdown('');
     }
   };
 
@@ -272,6 +318,7 @@ const CreateLeads = () => {
   };
 
   const loadYards = async (stateId: string) => {
+    setLoadingDropdown('yard');
     try {
       // yards: id, name, state_id, city_id, state_name, city_name, status
       const rows = await select<{ id: string; name: string }>(
@@ -282,12 +329,15 @@ const CreateLeads = () => {
       console.log('[CreateLeads] Yards from DB:', rows.length, 'for state:', stateId);
     } catch (e) {
       console.error('[CreateLeads] loadYards error:', e);
+    } finally {
+      setLoadingDropdown('');
     }
   };
 
   const loadAreas = async (cityId: string) => {
+    setLoadingDropdown('area');
     try {
-      if (!user?.token) return;
+      if (!user?.token) { setLoadingDropdown(''); return; }
 
       // fetchAreasForCity:
       //   1. DB mein check karo → agar hai to return (no API)
@@ -301,27 +351,66 @@ const CreateLeads = () => {
       }
     } catch (e) {
       console.error('[CreateLeads] loadAreas error:', e);
+    } finally {
+      setLoadingDropdown('');
     }
   };
 
   // ── Validation ──────────────────────────────────────────────────────────
 
   const validate = (): boolean => {
+    const isRepo = formData.vehicle_type_name.toLowerCase() === 'repo';
+
+    // Common required fields
+    if (!formData.company_id) {
+      ToastAndroid.show('Please select Client Name', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.vehicle_type_id) {
+      ToastAndroid.show('Please select Vehicle Type', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.vehicle_category) {
+      ToastAndroid.show('Please select Vehicle Category', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.client_city_id) {
+      ToastAndroid.show('Please select Client City', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.reg_no.trim()) {
+      ToastAndroid.show('Registration number required', ToastAndroid.SHORT); return false;
+    }
+    if (!formData.prospect_no.trim()) {
+      ToastAndroid.show('Prospect number required', ToastAndroid.SHORT); return false;
+    }
     if (!formData.customer_name.trim()) {
       ToastAndroid.show('Customer name required', ToastAndroid.SHORT); return false;
     }
     if (!formData.customer_mobile.trim() || formData.customer_mobile.length !== 10) {
       ToastAndroid.show('Valid 10-digit mobile required', ToastAndroid.SHORT); return false;
     }
-    if (!formData.company_id) {
-      ToastAndroid.show('Please select a company', ToastAndroid.SHORT); return false;
-    }
-    if (!formData.vehicle_type_id) {
-      ToastAndroid.show('Please select vehicle type', ToastAndroid.SHORT); return false;
-    }
     if (!formData.state_id) {
-      ToastAndroid.show('Please select state', ToastAndroid.SHORT); return false;
+      ToastAndroid.show('Please select Customer State', ToastAndroid.SHORT); return false;
     }
+
+    if (!isRepo) {
+      // Retail: city, area, pin required
+      if (!formData.city_id) {
+        ToastAndroid.show('Please select Customer City', ToastAndroid.SHORT); return false;
+      }
+      if (!formData.area_id) {
+        ToastAndroid.show('Please select Customer Area', ToastAndroid.SHORT); return false;
+      }
+      if (!formData.customer_pin.trim()) {
+        ToastAndroid.show('Customer pincode required', ToastAndroid.SHORT); return false;
+      }
+    } else {
+      // Repo: yard and chassis required
+      if (!formData.yard_id) {
+        ToastAndroid.show('Please select Yard Name', ToastAndroid.SHORT); return false;
+      }
+      if (!formData.chassis_no.trim()) {
+        ToastAndroid.show('Chassis number required', ToastAndroid.SHORT); return false;
+      }
+    }
+
     return true;
   };
 
@@ -351,47 +440,61 @@ const CreateLeads = () => {
       StatusId: 1,
       ClientCityId: formData.client_city_id ? Number(formData.client_city_id) : '',
       VehicleType: Number(formData.vehicle_type_id),
-      vehicleCategoryId: 0,
-      VehicleTypeValue: formData.vehicle_type_name.toUpperCase(),
+      vehicleCategoryId: Number(formData.vehicle_type_id),
+      VehicleTypeValue: formData.vehicle_category.toUpperCase(),
       YardId: isRepo && formData.yard_id ? Number(formData.yard_id) : 0,
+      ExecutiveName: "NEERAJ DAVE",
+      ExecutiveMobile: "8741891754",
+      ExecutiveReportEmailId: "75454",
       AutoAssign: 1,
+      version: '2',
     };
 
     try {
       const netState = await NetInfo.fetch();
       const isOnline = netState.isConnected && netState.isInternetReachable;
 
-      if (isOnline && user?.token) {
-        try {
-          const res = await submitCreateLeadApi(user.token, payload);
-          if (res.ERROR === '0') {
-            ToastAndroid.show(res.MESSAGE || 'Lead created!', ToastAndroid.LONG);
-            setFormData({ ...INITIAL_FORM });
-            navigation.goBack();
-            return;
-          }
-          console.warn('[CreateLeads] API error:', res.MESSAGE, '— saving offline');
-        } catch (apiErr) {
-          console.warn('[CreateLeads] API failed — saving offline:', apiErr);
-        }
+      if (!isOnline) {
+        // ── OFFLINE → pending_leads mein save karo ──
+        await run(
+          "INSERT INTO pending_leads (payload, status, retry_count) VALUES (?, 'pending', 0)",
+          [JSON.stringify(payload)]
+        );
+        ToastAndroid.show('Offline. Lead saved — will sync when online.', ToastAndroid.LONG);
+        setFormData({ ...INITIAL_FORM });
+        navigation.goBack();
+        return;
       }
 
-      // Offline ya API fail → pending_leads
+      // ── ONLINE → Direct API call ──
+      if (!user?.token) {
+        ToastAndroid.show('No auth token. Please login again.', ToastAndroid.SHORT);
+        return;
+      }
+
+      const res = await submitCreateLeadApi(user.token, payload);
+
+      if (res.ERROR === '0') {
+        ToastAndroid.show(res.MESSAGE || 'Lead created!', ToastAndroid.LONG);
+        setFormData({ ...INITIAL_FORM });
+        console.log('[CreateLeads] Lead created online:', res);
+        navigation.goBack();
+      } else {
+        // Server error (duplicate RegNo, ProspectNo etc.) → user ko seedha dikhao
+        ToastAndroid.show(res.MESSAGE || 'Server error. Please try again.', ToastAndroid.LONG);
+        console.warn('[CreateLeads] Server rejected:', res.MESSAGE);
+      }
+
+    } catch (e: any) {
+      // Network timeout / fetch fail → offline save
+      console.error('[CreateLeads] Submit error:', e);
+      ToastAndroid.show('Network error. Lead saved — will sync when online.', ToastAndroid.LONG);
       await run(
         "INSERT INTO pending_leads (payload, status, retry_count) VALUES (?, 'pending', 0)",
         [JSON.stringify(payload)]
       );
-      ToastAndroid.show(
-        isOnline
-          ? 'Server error. Lead saved — will retry.'
-          : 'Offline. Lead saved — will sync when online.',
-        ToastAndroid.LONG
-      );
       setFormData({ ...INITIAL_FORM });
       navigation.goBack();
-    } catch (e: any) {
-      console.error('[CreateLeads] Submit error:', e);
-      ToastAndroid.show('Failed: ' + e.message, ToastAndroid.LONG);
     } finally {
       setIsSubmitting(false);
     }
@@ -417,7 +520,7 @@ const CreateLeads = () => {
           <ActivityIndicator
             size="small"
             color={COLORS.AppTheme.primary}
-            style={{ alignSelf: 'center', marginBottom: 10 }}
+            style={styles.inlineLoader}
           />
         )}
 
@@ -436,16 +539,17 @@ const CreateLeads = () => {
           disabled={!formData.company_id}
         />
 
-        {vehicleCategories.length > 0 && (
-          <>
-            <View style={styles.divider} />
-            <Selector
-              keyText="Vehicle Category"
-              valueText={formData.vehicle_category}
-              onPress={() => openModal('vehicle_category', vehicleCategories, 'Select Category')}
-            />
-          </>
-        )}
+        <View style={styles.divider} />
+
+        <Selector
+          keyText="Vehicle Category"
+          valueText={formData.vehicle_category}
+          onPress={() => openModal(
+            'vehicle_category',
+            vehicleCategories.length > 0 ? vehicleCategories : VEHICLE_CATEGORIES_FALLBACK,
+            'Select Category'
+          )}
+        />
 
         <View style={styles.divider} />
 
@@ -492,7 +596,7 @@ const CreateLeads = () => {
           placeholder="Customer Name"
           value={formData.customer_name}
           autoCapitalize="words"
-          onChangeText={value => setField({ customer_name: value })}
+          onChangeText={value => setField({ customer_name: value.replace(/[^a-zA-Z\s]/g, '') })}
         />
 
         <View style={styles.spacer} />
@@ -546,6 +650,17 @@ const CreateLeads = () => {
               value={formData.customer_pin}
               onChangeText={value => setField({ customer_pin: value })}
             />
+
+            <View style={styles.spacer} />
+
+            <TextInput
+              style={styles.addressInput}
+              placeholder="Customer Address"
+              placeholderTextColor="#999"
+              value={formData.customer_address}
+              onChangeText={value => setField({ customer_address: value })}
+              multiline
+            />
           </>
         )}
 
@@ -553,7 +668,7 @@ const CreateLeads = () => {
         <View style={styles.spacer} />
 
         <TouchableOpacity
-          style={[styles.submitButton, isSubmitting && { opacity: 0.7 }]}
+          style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
           onPress={handleSubmit}
           disabled={isSubmitting}
           activeOpacity={0.7}
@@ -589,7 +704,11 @@ const CreateLeads = () => {
                   <Text style={styles.listItemText}>{item.name}</Text>
                 </TouchableOpacity>
               )}
-              ListEmptyComponent={<Text style={styles.empty}>No results</Text>}
+              ListEmptyComponent={
+                loadingDropdown === activeField
+                  ? <View style={styles.center}><ActivityIndicator size="large" color={COLORS.AppTheme.primary} /><Text style={styles.loadingText}>Loading...</Text></View>
+                  : <Text style={styles.empty}>No results</Text>
+              }
             />
 
             <TouchableOpacity
@@ -728,6 +847,17 @@ const styles = StyleSheet.create({
     color: '#000',
     marginVertical: 8,
   },
+  addressInput: {
+    height: 100,
+    backgroundColor: COLORS.Dashboard.bg.Grey,
+    borderRadius: 8,
+    paddingHorizontal: 15,
+    paddingTop: 12,
+    fontSize: 14,
+    color: '#000',
+    marginVertical: 8,
+    textAlignVertical: 'top',
+  },
   divider: {
     height: 1,
     backgroundColor: '#e0e0e0',
@@ -745,6 +875,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     marginVertical: 16,
+  },
+  submitButtonDisabled: {
+    opacity: 0.7,
   },
   submitButtonText: {
     color: '#fff',
@@ -813,6 +946,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 24,
     color: '#9ca3af',
+  },
+  inlineLoader: {
+    alignSelf: 'center',
+    marginBottom: 10,
   },
 });
 

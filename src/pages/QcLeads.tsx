@@ -7,11 +7,15 @@ import {
   Text,
   TouchableOpacity,
   View,
+  RefreshControl,
+  ToastAndroid,
 } from "react-native";
 import Feather from "react-native-vector-icons/Feather";
 import { COLORS } from "../constants/Colors";
 import { useFocusEffect } from "@react-navigation/native";
-import { getLeadsByStatus } from "../services/LeadService";
+import NetInfo from "@react-native-community/netinfo";
+import { getLeadsByStatus, fetchAndSaveLeadsByStatus } from "../services/LeadService";
+import { useAppStore } from "../store/AppStore";
 import { convertDateString } from "../utils/convertDateString";
 
 interface StatusLead {
@@ -75,8 +79,10 @@ const LeadCard = ({ lead }: { lead: StatusLead }) => {
 };
 
 export default function QCLeads() {
+  const { user } = useAppStore();
   const [qcLeads, setQcLeads] = useState<StatusLead[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -97,8 +103,32 @@ export default function QCLeads() {
     }, [loadData])
   );
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected && user?.token) {
+        await fetchAndSaveLeadsByStatus(user.token, 'QCLeads');
+        console.log('[QCLeads] ✅ Refreshed from server');
+      } else {
+        ToastAndroid.show('Offline — showing cached data', ToastAndroid.SHORT);
+      }
+      await loadData();
+    } catch (e) {
+      console.error('[QCLeads] Refresh error:', e);
+      ToastAndroid.show('Refresh failed', ToastAndroid.SHORT);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user?.token, loadData]);
+
   return (
-    <ScrollView style={styles.screen}>
+    <ScrollView
+      style={styles.screen}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.AppTheme.primary]} />
+      }
+    >
       <View style={styles.pagePadding}>
         {isLoading && (
           <View style={styles.loaderContainer}>

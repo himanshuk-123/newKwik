@@ -1,11 +1,13 @@
 import React, { useCallback, useState } from 'react';
-import { View, FlatList, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ViewStyle } from 'react-native';
+import { View, FlatList, Text, StyleSheet, ActivityIndicator, TouchableOpacity, ViewStyle, RefreshControl, ToastAndroid } from 'react-native';
 import { COLORS } from '../constants/Colors';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Feather from 'react-native-vector-icons/Feather';
 import { useFocusEffect } from '@react-navigation/native';
-import { getLeadsByStatus } from '../services/LeadService';
-import { getDaybook } from '../services/AppLeadDaybook';
+import NetInfo from '@react-native-community/netinfo';
+import { getLeadsByStatus, fetchAndSaveLeadsByStatus } from '../services/LeadService';
+import { getDaybook, fetchAndSaveDaybook } from '../services/AppLeadDaybook';
+import { useAppStore } from '../store/AppStore';
 import { openUrlInBrowser } from '../utils/openUrlInBrowser';
 import { share } from '../utils/share';
 import { convertDateString } from '../utils/convertDateString';
@@ -42,9 +44,11 @@ const Counter = (props: CounterProps) => {
 };
 
 const ValuationCompletedLeadsPage = () => {
+  const { user } = useAppStore();
   const [leads, setLeads] = useState<StatusLead[]>([]);
   const [dayBook, setDayBook] = useState<DayBookData>({ lastmonth: 0, thismonth: 0, Today: 0 });
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -68,6 +72,28 @@ const ValuationCompletedLeadsPage = () => {
       loadData();
     }, [loadData])
   );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const netState = await NetInfo.fetch();
+      if (netState.isConnected && user?.token) {
+        await Promise.all([
+          fetchAndSaveLeadsByStatus(user.token, 'CompletedLeads'),
+          fetchAndSaveDaybook(user.token),
+        ]);
+        console.log('[ValuationCompleted] ✅ Refreshed from server');
+      } else {
+        ToastAndroid.show('Offline — showing cached data', ToastAndroid.SHORT);
+      }
+      await loadData();
+    } catch (e) {
+      console.error('[ValuationCompleted] Refresh error:', e);
+      ToastAndroid.show('Refresh failed', ToastAndroid.SHORT);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user?.token, loadData]);
 
   const renderHeader = () => (
     <View style={styles.counterStack}>
@@ -149,6 +175,9 @@ const ValuationCompletedLeadsPage = () => {
         renderItem={renderItem}
         keyExtractor={(item) => item.lead_uid?.toString() || Math.random().toString()}
         contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.AppTheme.primary]} />
+        }
         ListEmptyComponent={
           !isLoading ? (
             <View style={styles.center}>

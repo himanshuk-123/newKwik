@@ -1,7 +1,7 @@
 import { run, select } from '../database/db';
-import type { AppStepListResponse } from './types';
+import type { AppStepListResponse, AppStepListDataRecord } from './types';
 import { apiCall, APP_VERSION } from './ApiClient';
-import { getLeadsByVehicleType } from './LeadService';
+import { getLeadsByStatus } from './LeadService';
 
 // ─── API CALL ────────────────────────────────────────────────────────────────
 
@@ -19,12 +19,12 @@ export const fetchAppStepListApi = (
 // ─── DB SAVE ─────────────────────────────────────────────────────────────────
 
 export const saveAppStepsForAllVehicleTypes = async (token: string): Promise<void> => {
-  const allLeads = await getLeadsByVehicleType();
+  const allLeads = await getLeadsByStatus('AssignedLeads');
   if (!allLeads.length) return;
 
   const vehicleTypeMap = new Map<string, string>();
   for (const lead of allLeads) {
-    if (!vehicleTypeMap.has(lead.vehicle_type_value)) {
+    if (lead.vehicle_type_value && !vehicleTypeMap.has(lead.vehicle_type_value)) {
       vehicleTypeMap.set(lead.vehicle_type_value, lead.id);
     }
   }
@@ -46,7 +46,7 @@ export const saveAppStepsForAllVehicleTypes = async (token: string): Promise<voi
 
 // ─── DB GET ──────────────────────────────────────────────────────────────────
 
-export const getAppSteps = async (vehicleType: string): Promise<any[] | null> => {
+export const getAppSteps = async (vehicleType: string): Promise<AppStepListDataRecord[] | null> => {
   const rows = await select<{ steps_data: string }>(
     'SELECT steps_data FROM app_steps WHERE vehicle_type = ? LIMIT 1',
     [vehicleType]

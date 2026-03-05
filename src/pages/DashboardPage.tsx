@@ -16,6 +16,7 @@ import { PieChart } from "react-native-gifted-charts";
 import { useNavigation } from "@react-navigation/native";
 import { COLORS } from "../constants/Colors";
 import { useAppStore } from "../store/AppStore";
+import { select } from "../database";
 
 type DisplayProps = {
   value: number;
@@ -85,6 +86,17 @@ const Dashboard = () => {
 
   const [refreshing, setRefreshing] = useState(false);
   const [hasRefreshedOnce, setHasRefreshedOnce] = useState(false);
+  const [valuatingCount, setValuatingCount] = useState(0);
+
+  // Count of leads with image captures (active valuations)
+  const loadValuatingCount = useCallback(async () => {
+    try {
+      const rows = await select<{ cnt: number }>(
+        'SELECT COUNT(DISTINCT lead_id) as cnt FROM image_captures'
+      );
+      setValuatingCount(rows[0]?.cnt ?? 0);
+    } catch { setValuatingCount(0); }
+  }, []);
 
   // 1. Initial Fetch on Mount
   useEffect(() => {
@@ -93,19 +105,23 @@ const Dashboard = () => {
       setHasRefreshedOnce(true);
     }
   }, [fetchDashboard, hasRefreshedOnce, user]);
-
+const fetchImageDatabase = async () =>{
+  const res = await select('SELECT * FROM pending_leads');
+  console.log('ImageLeads from DB:', res);
+}
   // 2. Pull Request Handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchDashboard();
+    await Promise.all([fetchDashboard(), loadValuatingCount()]);
     setRefreshing(false);
-  }, [fetchDashboard]);
+  }, [fetchDashboard, loadValuatingCount]);
 
   // 3. Refresh dashboard when coming back
   useFocusEffect(
     useCallback(() => {
       fetchDashboard();
-    }, [fetchDashboard])
+      loadValuatingCount();
+    }, [fetchDashboard, loadValuatingCount])
   );
 
   // Safe data extraction
@@ -164,10 +180,10 @@ const Dashboard = () => {
           redirectTo="MyTasks"
         />
         <DisplayComponent
-          value={assigned}
+          value={valuatingCount}
           text="Valuate"
           icon="content-copy"
-          color="Grey"
+          color="Orange"
           redirectTo="ValuationList"
         />
         <DisplayComponent
@@ -185,6 +201,8 @@ const Dashboard = () => {
           color="Green"
           redirectTo="ValuationCompletedLeads"
         />
+
+
       </ScrollView>
 
 
