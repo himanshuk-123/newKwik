@@ -11,6 +11,7 @@
 import { run, select } from '../database/db';
 import { apiCall } from './ApiClient';
 import NetInfo from '@react-native-community/netinfo';
+import { getPendingCountForLead, deleteUploadedImagesForLead } from '../database/imageCaptureDb';
 
 // VehicleDetails endpoints expect Version "2" (original .jsx contract)
 const VD_API_VERSION = '2';
@@ -298,48 +299,27 @@ export const fetchVahan = async (
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Vehicle details submit karo
- * Online → API → success/fail
- * Offline → pending_vehicle_details queue mein save
+ * Vehicle details submit karo — ALWAYS offline queue mein save
+ * Images sync hone ke baad hi server pe jayega (SyncManager handles)
  */
 export const submitVehicleDetails = async (
   token: string,
   payload: Record<string, any>,
+  leadId?: string,
+  optionalInfo?: Record<string, any>,
 ): Promise<{ success: boolean; offline: boolean; message: string }> => {
-  const isOnline = await checkOnline();
+  // Always save to pending queue — sync tabhi hoga jab lead ki saari images upload ho jayein
+  const queuePayload = JSON.stringify({
+    main: payload,
+    optionalInfo: optionalInfo || null,
+  });
 
-  if (!isOnline) {
-    // Offline → queue mein daalo
-    await run(
-      "INSERT INTO pending_vehicle_details (payload, status, retry_count) VALUES (?, 'pending', 0)",
-      [JSON.stringify(payload)]
-    );
-    console.log('[VDS] Saved to pending_vehicle_details (offline)');
-    return { success: true, offline: true, message: 'Offline. Data saved — will sync when online.' };
-  }
-
-  // Online → direct API call
-  try {
-    const res = await apiCall<VehicleDetailsSubmitResponse>(
-      'LeadReportDataCreateedit',
-      token,
-      { Version: VD_API_VERSION, ...payload }
-    );
-
-    if (res?.ERROR && res.ERROR !== '0') {
-      return { success: false, offline: false, message: res?.MESSAGE || 'Failed to save data' };
-    }
-
-    return { success: true, offline: false, message: 'Saved successfully' };
-  } catch (e: any) {
-    // Network error → offline save
-    console.error('[VDS] Submit error, saving offline:', e);
-    await run(
-      "INSERT INTO pending_vehicle_details (payload, status, retry_count) VALUES (?, 'pending', 0)",
-      [JSON.stringify(payload)]
-    );
-    return { success: true, offline: true, message: 'Network error. Data saved — will sync when online.' };
-  }
+  await run(
+    "INSERT INTO pending_vehicle_details (payload, lead_id, status, retry_count) VALUES (?, ?, 'pending', 0)",
+    [queuePayload, leadId || String(payload.LeadId || '')]
+  );
+  console.log(`[VDS] Saved to pending_vehicle_details (lead: ${leadId || payload.LeadId})`);
+  return { success: true, offline: true, message: 'Data saved — will sync after images upload.' };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -347,29 +327,74 @@ export const submitVehicleDetails = async (
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Pending vehicle details sync karo — online aane par
- * SyncManager ya syncService se call hoga
+ * Pending vehicle details sync karo — ONLY jab lead ki saari images upload ho chuki hon
+ * SyncManager se call hoga (images upload ke BAAD)
  */
-export const syncPendingVehicleDetails = async (token: string): Promise<{ synced: number; failed: number }> => {
-  const pending = await select<{ id: number; payload: string; retry_count: number }>(
+export const syncPendingVehicleDetails = async (token: string): Promise<{ synced: number; failed: number; skipped: number }> => {
+  const pending = await select<{ id: number; payload: string; lead_id: string | null; retry_count: number }>(
     "SELECT * FROM pending_vehicle_details WHERE status = 'pending' AND retry_count < 9 ORDER BY created_at ASC"
   );
 
   if (!pending.length) {
-    return { synced: 0, failed: 0 };
+    return { synced: 0, failed: 0, skipped: 0 };
   }
 
-  console.log(`[VDS] Syncing ${pending.length} pending vehicle details...`);
+  console.log(`[VDS] Checking ${pending.length} pending vehicle details...`);
   let synced = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const item of pending) {
+    // ── Check: lead ki saari images upload ho chuki hain? ──
+    const leadId = item.lead_id || '';
+    if (leadId) {
+      const pendingImages = await getPendingCountForLead(leadId);
+      if (pendingImages > 0) {
+        console.log(`[VDS] ⏳ Skipping lead ${leadId} — ${pendingImages} images still pending`);
+        skipped++;
+        continue;
+      }
+    }
+
     try {
-      const payload = JSON.parse(item.payload);
+      const parsed = JSON.parse(item.payload);
+
+      // New format: { main: {...}, optionalInfo: {...} }  |  Old format: raw payload
+      const mainPayload = parsed.main || parsed;
+      const optionalInfo = parsed.optionalInfo || null;
+
+      // ── Optional info pehle submit karo ──
+      if (optionalInfo && typeof optionalInfo === 'object') {
+        for (const [question, info] of Object.entries(optionalInfo) as [string, any][]) {
+          const answerValue = typeof info === 'string' ? info : info?.answer;
+          const appColumn = typeof info === 'string' ? '' : info?.appColumn || '';
+          if (!answerValue) continue;
+
+          const KNOWN_MAPPING: Record<string, (a: string) => any> = {
+            'battery condition check': (a) => ({ LeadId: mainPayload.LeadId, LeadFeature: { Battery: a } }),
+            'vehicle condition check': (a) => ({ LeadId: mainPayload.LeadId, LeadFeature: { VehicleCondition: a } }),
+            'check paint condition': (a) => ({ LeadHighlight: { LeadId: mainPayload.LeadId, Chassis: a } }),
+          };
+
+          const knownBuilder = KNOWN_MAPPING[question.toLowerCase()];
+          const infoPayload = knownBuilder
+            ? { Version: VD_API_VERSION, ...knownBuilder(answerValue) }
+            : { Version: VD_API_VERSION, LeadId: mainPayload.LeadId, [appColumn || question]: { Value: answerValue } };
+
+          try {
+            await apiCall('LeadReportDataCreateedit', token, infoPayload);
+            console.log(`[VDS] ✅ Optional info synced: ${question}`);
+          } catch (e) {
+            console.warn(`[VDS] ⚠️ Optional info failed: ${question}`, e);
+          }
+        }
+      }
+
+      // ── Main vehicle details submit ──
       const res = await apiCall<VehicleDetailsSubmitResponse>(
         'LeadReportDataCreateedit',
         token,
-        { Version: VD_API_VERSION, ...payload }
+        { Version: VD_API_VERSION, ...mainPayload }
       );
 
       if (res.ERROR === '0') {
@@ -378,7 +403,12 @@ export const syncPendingVehicleDetails = async (token: string): Promise<{ synced
           [item.id]
         );
         synced++;
-        console.log(`[VDS] Synced vehicle detail #${item.id}`);
+        console.log(`[VDS] ✅ Synced vehicle detail #${item.id} (lead: ${leadId})`);
+
+        // ── Cleanup: Lead ki uploaded images delete karo ──
+        if (leadId) {
+          await deleteUploadedImagesForLead(leadId);
+        }
       } else {
         await run(
           "UPDATE pending_vehicle_details SET retry_count = retry_count + 1, last_tried_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -400,8 +430,8 @@ export const syncPendingVehicleDetails = async (token: string): Promise<{ synced
   // Cleanup synced items
   await run("DELETE FROM pending_vehicle_details WHERE status = 'synced'", []);
 
-  console.log(`[VDS] Sync done: ${synced} synced, ${failed} failed`);
-  return { synced, failed };
+  console.log(`[VDS] Sync done: ${synced} synced, ${failed} failed, ${skipped} skipped (images pending)`);
+  return { synced, failed, skipped };
 };
 
 /**

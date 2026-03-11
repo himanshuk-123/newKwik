@@ -1,6 +1,30 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+
+// ── Vector Icons: config MUST be before fonts.gradle ──
+project.ext.vectoricons = [
+    iconFontNames: [
+        'MaterialIcons.ttf',
+        'MaterialCommunityIcons.ttf',
+        'FontAwesome.ttf',
+        'FontAwesome5_Regular.ttf',
+        'FontAwesome5_Solid.ttf',
+        'FontAwesome5_Brands.ttf',
+        'FontAwesome6_Regular.ttf',
+        'FontAwesome6_Solid.ttf',
+        'FontAwesome6_Brands.ttf',
+        'Ionicons.ttf',
+        'Feather.ttf',
+        'AntDesign.ttf',
+        'Entypo.ttf',
+        'EvilIcons.ttf',
+        'Foundation.ttf',
+        'Octicons.ttf',
+        'SimpleLineIcons.ttf',
+        'Zocial.ttf'
+    ]
+]
 apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
 
 /**
@@ -107,29 +131,6 @@ android {
         }
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// React Native Vector Icons Configuration
-// ─────────────────────────────────────────────────────────────────────────────
-project.ext.vectoricons = [
-    iconFontNames: [
-        'MaterialIcons.ttf',
-        'MaterialCommunityIcons.ttf',
-        'FontAwesome.ttf',
-        'FontAwesome5_Regular.ttf',
-        'FontAwesome5_Solid.ttf',
-        'FontAwesome5_Brands.ttf',
-        'Ionicons.ttf',
-        'Feather.ttf',
-        'AntDesign.ttf',
-        'Entypo.ttf',
-        'EvilIcons.ttf',
-        'Foundation.ttf',
-        'Octicons.ttf',
-        'SimpleLineIcons.ttf',
-        'Zocial.ttf'
-    ]
-]
 
 dependencies {
     // The version of react-native is set by the React Native Gradle Plugin

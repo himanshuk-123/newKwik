@@ -6,7 +6,7 @@ import { fetchAndSaveDashboard } from './DashboardService';
 import { saveCompanies } from './CompanyService';
 import { saveAllVehicleTypes } from './VehicleTypeService';
 import { saveAllYards } from './YardService';
-import { fetchAndSaveAllStatusLeads, syncPendingLeads } from './LeadService';
+import { fetchAndSaveAllStatusLeads } from './LeadService';
 import { saveAppStepsForAllVehicleTypes } from './AppStepService';
 import { fetchAndSaveCompletedLeads } from './AppLeadCompleted';
 import { fetchAndSaveDaybook } from './AppLeadDaybook';
@@ -14,7 +14,7 @@ import { syncAllDropdownsForCategory, syncPendingVehicleDetails } from './Vehicl
 
 // Re-export for backward compatibility
 export { fetchAreasForCity } from './AreaService';
-export { syncPendingLeads} from './LeadService';
+export { syncPendingLeads, resetStuckPendingLeads } from './LeadService';
 export { saveAppStepsForAllVehicleTypes } from './AppStepService';
 export { syncPendingVehicleDetails } from './VehicleDetailService';
 

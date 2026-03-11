@@ -69,6 +69,7 @@ const DisplayComponent = ({
         <FontAwesome6
           name="arrow-right"
           size={18}
+          solid
           color={COLORS.Dashboard.text[color]}
           style={styles.arrowIcon}
         />
@@ -201,6 +202,7 @@ const fetchImageDatabase = async () =>{
           color="Green"
           redirectTo="ValuationCompletedLeads"
         />
+
 
 
       </ScrollView>

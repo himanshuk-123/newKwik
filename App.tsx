@@ -11,8 +11,8 @@ import { useAppStore } from './src/store/AppStore';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SyncManager } from './src/services/Syncmanager';
-import { syncPendingLeads } from './src/services/syncService';
-import { submitCreateLeadApi } from './src/services/ApiClient';
+import { syncPendingLeads, resetStuckPendingLeads } from './src/services/syncService';
+import { submitCreateLeadApi } from './src/services/CreateLead';
 import NetInfo from '@react-native-community/netinfo';
 import SplashScreen from './src/components/SplashScreen';
 import 'react-native-reanimated';
@@ -57,6 +57,7 @@ const App = () => {
       const isOnline = state.isConnected && state.isInternetReachable !== false;
       if (isOnline && user?.token) {
         console.log('[App] Online — syncing pending leads...');
+        await resetStuckPendingLeads();
         await syncPendingLeads(user.token, (payload) =>
           submitCreateLeadApi(user.token!, payload)
         );
@@ -67,6 +68,7 @@ const App = () => {
     NetInfo.fetch().then(async (state) => {
       const isOnline = state.isConnected && state.isInternetReachable !== false;
       if (isOnline && user?.token) {
+        await resetStuckPendingLeads();
         await syncPendingLeads(user.token, (payload) =>
           submitCreateLeadApi(user.token!, payload)
         );

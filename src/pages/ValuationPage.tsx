@@ -34,6 +34,7 @@ import { uploadQueueManager } from "../services/uploadQueue.manager";
 import { getCapturedMediaByLeadId, setTotalCount, updateLeadMetadata } from "../database/valuationProgress.db";
 import { saveQuestionnaireAnswer } from "../database/imageCaptureDb";
 import useQuestions from "../services/useQuestions";
+import { resolveAppColumn } from "../constants/DocumentUploadMapping";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -321,7 +322,7 @@ const ValuateCard = ({
       id,
       side: text,
       vehicleType,
-      appColumn: appColumn || text.replace(/\s/g, ''),
+      appColumn: appColumn || resolveAppColumn(text, null, vehicleType),
       useFrontCamera: isSelfie,
     });
   };
@@ -454,7 +455,7 @@ const ValuationPage = () => {
     const isNew = lastUpload.side !== lastProcessedSide && !processedSidesRef.current[lastUpload.side];
     if (!isNew) return;
 
-    const stepData = steps.find(s => (s.Name || '').toLowerCase().trim() === lastUpload.side.toLowerCase().trim());
+    const stepData = steps.find(s => s.VehicleType === vehicleType.toUpperCase() && (s.Name || '').toLowerCase().trim() === lastUpload.side.toLowerCase().trim());
     if (!stepData) {
       processedSidesRef.current[lastUpload.side] = true;
       setLastProcessedSide(lastUpload.side);
@@ -484,14 +485,16 @@ const ValuationPage = () => {
   // ── Metadata update ───────────────────────────────────────────────────────
 
   const clickableImageSides = useMemo(() => {
-    if (!steps?.length) return [];
-    return steps.filter(s => s.Images !== false).map(s => s.Name || "");
-  }, [steps]);
+    if (!steps?.length || !vehicleType) return [];
+    return steps
+      .filter(s => s.VehicleType === vehicleType.toUpperCase() && s.Images)
+      .map(s => s.Name || "");
+  }, [steps, vehicleType]);
 
   const optionalInfoItems = useMemo(() => {
-    if (!steps?.length) return [];
-    return steps.filter(s => s.Images === false);
-  }, [steps]);
+    if (!steps?.length || !vehicleType) return [];
+    return steps.filter(s => s.VehicleType === vehicleType.toUpperCase() && s.Images === false);
+  }, [steps, vehicleType]);
 
   useEffect(() => {
     if (!leadId || !clickableImageSides.length) return;
@@ -574,7 +577,7 @@ const ValuationPage = () => {
                       isClickable={isUnlocked}
                       vehicleType={vehicleType}
                       text={side}
-                      appColumn={steps.find(s => s.Name === side)?.Appcolumn || side}
+                      appColumn={resolveAppColumn(side, steps.find(s => s.Name === side && s.VehicleType === vehicleType.toUpperCase())?.Appcolumn, vehicleType)}
                       isUploading={false}
                       uploadStatus={sideUploadStatus[side]}
                     />
@@ -681,7 +684,7 @@ const styles = StyleSheet.create({
   headerContainer: { alignItems: "center", paddingTop: 20 },
   carIdText: { fontSize: 24, fontWeight: "600", color: COLORS.Dashboard.text.Grey },
   videoContainer: { width: "100%", alignItems: "center", paddingTop: 20, paddingHorizontal: 20 },
-  videoCard: { width: "89%", padding: 20, borderRadius: 10, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3, backgroundColor: "white" },
+  videoCard: { width: "89%", padding: 15, borderRadius: 10, alignItems: "center", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3, backgroundColor: "white" },
   videoCardCompleted: { backgroundColor: "#ABEB94" },
   videoCardText: { fontSize: 16, fontWeight: "600", color: COLORS.Dashboard.text.Grey, textAlign: "center" },
   cardContainer: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 20, justifyContent: "center", alignItems: "center", paddingTop: 20, paddingBottom: 40, paddingHorizontal: 10 },

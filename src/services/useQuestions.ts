@@ -19,11 +19,11 @@ const useQuestions = () => {
    * Agar Questions non-empty hai toh step return karta hai, warna null.
    */
   const getSideQuestion = (params: GetSideQuestionParams): AppStepListDataRecord | null => {
-    const { data, nameInApplication } = params;
+    const { data, vehicleType, nameInApplication } = params;
     if (!data?.length || !nameInApplication) return null;
 
     const match = data.find(
-      s => (s.Name || '').toLowerCase().trim() === nameInApplication.toLowerCase().trim()
+      s => s.VehicleType === vehicleType.toUpperCase() && (s.Name || '').toLowerCase().trim() === nameInApplication.toLowerCase().trim()
     );
 
     if (!match) return null;

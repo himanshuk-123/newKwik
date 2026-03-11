@@ -271,3 +271,20 @@ export const markAnswerSubmitted = async (id: number): Promise<void> => {
     [id]
   );
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLEANUP — Lead ki saari images + vehicle details sync ho gayi toh delete karo
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const deleteUploadedImagesForLead = async (leadId: string): Promise<number> => {
+  await run(
+    `DELETE FROM image_captures WHERE lead_id = ? AND upload_status = 'uploaded'`,
+    [leadId]
+  );
+  const rows = await select<{ count: number }>('SELECT changes() as count');
+  const count = rows[0]?.count ?? 0;
+  if (count > 0) {
+    console.log(`[ImageDB] 🧹 Cleaned up ${count} uploaded images for lead ${leadId}`);
+  }
+  return count;
+};

@@ -16,6 +16,7 @@ import { getPendingCountByLead } from '../database/imageCaptureDb';
 import { uploadSingleImage } from '../services/Imageuploadservice';
 import { getAppSteps } from '../services/AppStepService';
 import { useAppStore } from '../store/AppStore';
+import { SyncManager } from '../services/Syncmanager';
 
 interface LeadUploadStatus {
   leadId: string;
@@ -124,6 +125,8 @@ const ValuationListScreen = () => {
         if (success) uploaded++; else failed++;
       }
       ToastAndroid.show(`Synced: ${uploaded} uploaded, ${failed} failed`, ToastAndroid.LONG);
+      // Images ke baad vehicle details bhi sync karo
+      SyncManager.kick();
       await loadData();
     } catch (e) {
       console.error('[ValuationList] Sync error:', e);
@@ -147,7 +150,8 @@ const ValuationListScreen = () => {
           </View>
         ) : (
           leads.map(lead => {
-            const pct = lead.totalCards > 0 ? Math.round((lead.uploadedImages / lead.totalCards) * 100) : 0;
+            const displayUploaded = Math.min(lead.uploadedImages, lead.totalCards);
+            const pct = lead.totalCards > 0 ? Math.round((displayUploaded / lead.totalCards) * 100) : 0;
             const allDone = lead.uploadedImages >= lead.totalCards && lead.totalCards > 0;
 
             return (
@@ -171,7 +175,7 @@ const ValuationListScreen = () => {
                   <View style={styles.progressBar}>
                     <View style={[styles.progressFill, allDone && styles.progressFillDone, { width: `${Math.min(pct, 100)}%` as any }]} />
                   </View>
-                  <Text style={styles.progressText}>{lead.uploadedImages}/{lead.totalCards}</Text>
+                  <Text style={styles.progressText}>{displayUploaded}/{lead.totalCards}</Text>
                 </View>
 
                 {/* Sync button or All Done */}

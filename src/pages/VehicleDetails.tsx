@@ -32,9 +32,7 @@ import {
   submitVehicleDetails,
   type DropdownItem,
 } from "../services/VehicleDetailService";
-import { uploadPendingImagesForLead } from '../services/Imageuploadservice';
-import { getPendingCountForLead } from '../database/imageCaptureDb';
-import { apiCall } from '../services/ApiClient';
+import { SyncManager } from "../services/Syncmanager";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -477,47 +475,11 @@ const VehicleDetails = ({ route }: { route: any }) => {
 
       const vehicleModel = `${carData.model} ${carData.variant}`.trim();
 
-      // ── Pre-submit: Pending images pehle upload karo ─────────────────────
+      // ── Pre-submit: Image upload is handled by SyncManager ─────────────────
       const currentLeadId = String(leadData?.Id || carId);
-      if (isOnline) {
-        const pendingCount = await getPendingCountForLead(currentLeadId);
-        if (pendingCount > 0) {
-          ToastAndroid.show(
-            `Uploading ${pendingCount} pending images before submit...`,
-            ToastAndroid.LONG
-          );
-          const syncResult = await uploadPendingImagesForLead(token, currentLeadId);
-          if (syncResult.failed > 0) {
-            ToastAndroid.show(
-              `${syncResult.failed} image(s) failed to upload. Please retry.`,
-              ToastAndroid.LONG
-            );
-            return;
-          }
-          console.log(`[VehicleDetails] ✅ All ${syncResult.uploaded} images uploaded before submit`);
-        }
-      }
 
-      // ── Submit optional info answers (Battery/Vehicle/Paint Condition) ────
-      if (optionalInfoAnswers && Object.keys(optionalInfoAnswers).length > 0) {
-        const currentLeadIdForInfo = leadData?.Id || carId;
-        const OPTIONAL_MAPPING: Record<string, (answer: string) => any> = {
-          'battery condition check': (a) => ({ LeadId: currentLeadIdForInfo, LeadFeature: { Battery: a } }),
-          'vehicle condition check': (a) => ({ LeadId: currentLeadIdForInfo, LeadFeature: { VehicleCondition: a } }),
-          'check paint condition': (a) => ({ LeadHighlight: { LeadId: currentLeadIdForInfo, Chassis: a } }),
-        };
-        for (const [question, answer] of Object.entries(optionalInfoAnswers)) {
-          const buildPayload = OPTIONAL_MAPPING[question.toLowerCase()];
-          if (buildPayload && answer) {
-            try {
-              await apiCall('LeadReportDataCreateedit', token, { Version: '2', ...buildPayload(answer as string) });
-              console.log(`[VehicleDetails] ✅ Optional info submitted: ${question} = ${answer}`);
-            } catch (e) {
-              console.warn(`[VehicleDetails] ⚠️ Optional info failed: ${question}`, e);
-            }
-          }
-        }
-      }
+      // ── Optional info answers → bundled with main payload for offline queue ──
+      // (will be submitted by SyncManager after all images are uploaded)
 
       const payload = {
         Id: 1,
@@ -558,10 +520,12 @@ const VehicleDetails = ({ route }: { route: any }) => {
         LeadStatus: "5",
       };
 
-      const result = await submitVehicleDetails(token, payload);
+      const result = await submitVehicleDetails(token, payload, currentLeadId, optionalInfoAnswers);
 
       if (result.success) {
         ToastAndroid.show(result.message, ToastAndroid.LONG);
+        // Vehicle details queue mein gaya, ab SyncManager ko bolo upload karo
+        SyncManager.kick();
         navigation.pop(2);
       } else {
         ToastAndroid.show(result.message, ToastAndroid.LONG);
@@ -585,13 +549,13 @@ const VehicleDetails = ({ route }: { route: any }) => {
 
       {/* Content */}
       <ScrollView style={styles.scrollView}>
-        <View style={styles.header}>
-          <View style={styles.headerContent}>
+        <View>
+          {/* <View style={styles.headerContent}>
             <TouchableOpacity onPress={() => navigation.goBack()}>
               <FontAwesome6 name="arrow-left" size={20} color={"white"} />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Vehicle Details</Text>
-          </View>
+          </View> */}
           {/* <TouchableOpacity
             style={[
               styles.fetchVahanBtn,
@@ -933,9 +897,7 @@ const VehicleDetails = ({ route }: { route: any }) => {
             {isSubmitting ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
-              <Text style={styles.submitButtonText}>
-                {isOnline ? "Submit" : "Save Offline"}
-              </Text>
+              <Text style={styles.submitButtonText}>Submit</Text>
             )}
           </TouchableOpacity>
         </View>

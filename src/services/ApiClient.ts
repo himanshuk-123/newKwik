@@ -61,7 +61,7 @@ export const confirmAppointmentApi = (
   leadId: string,
   appointmentDate: string
 ): Promise<ConfirmAppointmentResponse> =>
-  apiCall<ConfirmAppointmentResponse>('ConfirmAppointment', token, {
+  apiCall<ConfirmAppointmentResponse>('LeadAppointmentDate', token, {
     LeadId: leadId,
     AppointmentDate: appointmentDate,
   });

@@ -443,9 +443,6 @@ const CreateLeads = () => {
       vehicleCategoryId: Number(formData.vehicle_type_id),
       VehicleTypeValue: formData.vehicle_category.toUpperCase(),
       YardId: isRepo && formData.yard_id ? Number(formData.yard_id) : 0,
-      ExecutiveName: "NEERAJ DAVE",
-      ExecutiveMobile: "8741891754",
-      ExecutiveReportEmailId: "75454",
       AutoAssign: 1,
       version: '2',
     };

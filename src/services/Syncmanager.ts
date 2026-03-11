@@ -32,6 +32,8 @@ let _statusCallbacks: StatusCallback[] = [];
 let _currentStatus: SyncStatus = 'idle';
 let _pendingCount: number = 0;
 let _wasOffline = false;
+let _isSyncing = false;
+let _pendingRerun = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INTERNAL HELPERS
@@ -45,41 +47,61 @@ const notify = (status: SyncStatus, pending: number) => {
 
 const runUpload = async () => {
   if (!_token) return;
-
-  // ── Pending vehicle details bhi sync karo ──
-  try {
-    await syncPendingVehicleDetails(_token);
-  } catch (e) {
-    console.error('[SyncManager] Vehicle details sync error:', e);
-  }
-
-  const pending = await getPendingCount();
-  if (pending === 0) {
-    notify('idle', 0);
+  if (_isSyncing) {
+    _pendingRerun = true;
+    console.log('[SyncManager] Already syncing, will re-run after...');
     return;
   }
-
-  notify('syncing', pending);
-  console.log(`[SyncManager] Uploading ${pending} pending images...`);
+  _isSyncing = true;
+  _pendingRerun = false;
 
   try {
-    const result = await uploadPendingImages(_token, async (uploaded, total) => {
-      const remaining = total - uploaded;
-      notify('syncing', remaining);
-    });
+    // ── Step 1: Images pehle upload karo ──
+    const pending = await getPendingCount();
+    if (pending > 0) {
+      notify('syncing', pending);
+      console.log(`[SyncManager] Uploading ${pending} pending images...`);
 
-    const remaining = await getPendingCount();
-    if (remaining === 0) {
-      notify('done', 0);
-      console.log(`[SyncManager] ✅ All uploaded: ${result.uploaded} success, ${result.failed} failed`);
-    } else {
-      notify('error', remaining);
-      console.warn(`[SyncManager] ⚠️ Partial: ${result.uploaded} done, ${remaining} remaining`);
+      try {
+        const result = await uploadPendingImages(_token, async (uploaded, total) => {
+          const remaining = total - uploaded;
+          notify('syncing', remaining);
+        });
+
+        const remaining = await getPendingCount();
+        if (remaining === 0) {
+          console.log(`[SyncManager] ✅ All images uploaded: ${result.uploaded} success, ${result.failed} failed`);
+        } else {
+          console.warn(`[SyncManager] ⚠️ Partial: ${result.uploaded} done, ${remaining} remaining`);
+        }
+      } catch (e) {
+        console.error('[SyncManager] Image upload error:', e);
+      }
     }
-  } catch (e) {
-    const remaining = await getPendingCount();
-    notify('error', remaining);
-    console.error('[SyncManager] Upload error:', e);
+
+    // ── Step 2: Vehicle details sync — images ke BAAD ──
+    // syncPendingVehicleDetails internally checks per-lead image status
+    try {
+      await syncPendingVehicleDetails(_token);
+    } catch (e) {
+      console.error('[SyncManager] Vehicle details sync error:', e);
+    }
+
+    // Final status
+    const finalPending = await getPendingCount();
+    if (finalPending === 0) {
+      notify('done', 0);
+    } else {
+      notify('error', finalPending);
+    }
+  } finally {
+    _isSyncing = false;
+  }
+
+  // Agar syncing ke dauraan naye data aaya tha, toh dobara run karo
+  if (_pendingRerun) {
+    console.log('[SyncManager] Re-running due to new data...');
+    await runUpload();
   }
 };
 
@@ -214,6 +236,21 @@ export const SyncManager = {
     }
     _statusCallbacks = [];
     _token = null;
+    _isSyncing = false;
+    _pendingRerun = false;
     console.log('[SyncManager] Destroyed');
+  },
+
+  /**
+   * Naya data aaya hai (image capture / vehicle submit) → trigger upload
+   * Agar already syncing hai toh re-run queue mein daal dega
+   */
+  kick: async () => {
+    if (!_token) return;
+    const state = await NetInfo.fetch();
+    const isConnected = state.isConnected && state.isInternetReachable !== false;
+    if (isConnected) {
+      await runUpload();
+    }
   },
 };

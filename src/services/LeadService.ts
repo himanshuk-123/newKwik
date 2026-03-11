@@ -164,7 +164,7 @@ export const syncPendingLeads = async (
   submitFn: (payload: any) => Promise<{ ERROR: string; MESSAGE: string }>
 ): Promise<void> => {
   const pending = await select<{ id: number; payload: string; retry_count: number }>(
-    "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 9"
+    "SELECT * FROM pending_leads WHERE status = 'pending' AND retry_count < 15"
   );
   if (!pending.length) return;
   console.log(`[LEAD] Pending leads: ${pending.length}`);
@@ -172,17 +172,49 @@ export const syncPendingLeads = async (
   for (const lead of pending) {
     try {
       const res = await submitFn(JSON.parse(lead.payload));
+
+      if (res.ERROR === '0') {
+        await run(
+          "UPDATE pending_leads SET status = 'synced', last_tried_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [lead.id]
+        );
+        console.log(`[LEAD] ✅ Synced pending lead #${lead.id}`);
+      } else {
+        // Server ne reject kiya — error store karo
+        const errorMsg = res.MESSAGE || `Server error (ERROR=${res.ERROR})`;
+        console.warn(`[LEAD] ❌ Server rejected lead #${lead.id}: ${errorMsg}`);
+        await run(
+          "UPDATE pending_leads SET retry_count = retry_count + 1, last_tried_at = CURRENT_TIMESTAMP, last_error = ? WHERE id = ?",
+          [errorMsg, lead.id]
+        );
+      }
+    } catch (e: any) {
+      // Network error — retry karega
+      const errorMsg = e?.message || 'Network error';
+      console.warn(`[LEAD] ⚠️ Network error for lead #${lead.id}: ${errorMsg}`);
       await run(
-        res.ERROR === '0'
-          ? "UPDATE pending_leads SET status = 'synced', last_tried_at = CURRENT_TIMESTAMP WHERE id = ?"
-          : "UPDATE pending_leads SET retry_count = retry_count + 1, last_tried_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [lead.id]
-      );
-    } catch {
-      await run(
-        "UPDATE pending_leads SET retry_count = retry_count + 1, last_tried_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [lead.id]
+        "UPDATE pending_leads SET retry_count = retry_count + 1, last_tried_at = CURRENT_TIMESTAMP, last_error = ? WHERE id = ?",
+        [errorMsg, lead.id]
       );
     }
   }
+
+  // Cleanup synced leads
+  await run("DELETE FROM pending_leads WHERE status = 'synced'", []);
+};
+
+/**
+ * Stuck pending leads reset karo — app startup pe call hoga
+ * retry_count >= 15 wale leads ko reset karo (1 hour baad)
+ */
+export const resetStuckPendingLeads = async (): Promise<void> => {
+  const stuck = await select<{ id: number; last_error: string | null }>(
+    "SELECT id, last_error FROM pending_leads WHERE status = 'pending' AND retry_count >= 15"
+  );
+  if (!stuck.length) return;
+  console.log(`[LEAD] Resetting ${stuck.length} stuck pending leads (retry_count >= 15)`);
+  await run(
+    "UPDATE pending_leads SET retry_count = 0 WHERE status = 'pending' AND retry_count >= 15",
+    []
+  );
 };

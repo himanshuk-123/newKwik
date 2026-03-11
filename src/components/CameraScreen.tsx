@@ -133,7 +133,11 @@ const CameraScreen = () => {
         enableShutterSound: false,
       });
 
-      // Preview mode ON — user ko image dikhao
+      // Preview mode ON — portrait lock BEFORE showing preview
+      // so screen is already portrait when user presses Proceed → no glitch
+      if (!useFrontCamera) {
+        Orientation.lockToPortrait();
+      }
       setPreviewUri(`file://${photo.path}`);
 
     } catch (e: any) {
@@ -153,6 +157,9 @@ const CameraScreen = () => {
               flash: 'off',
               enableShutterSound: false,
             });
+            if (!useFrontCamera) {
+              Orientation.lockToPortrait();
+            }
             setPreviewUri(`file://${retryPhoto.path}`);
             setIsCapturing(false);
             return;
@@ -169,13 +176,17 @@ const CameraScreen = () => {
     } finally {
       setIsCapturing(false);
     }
-  }, [isCameraReady, isCapturing]);
+  }, [isCameraReady, isCapturing, useFrontCamera]);
 
   // ── Step 2: Retake — preview hatao, camera wapas ───────────────────────────
 
   const handleRetake = useCallback(() => {
+    // Back to landscape for camera (selfie stays portrait)
+    if (!useFrontCamera) {
+      Orientation.lockToLandscapeLeft();
+    }
     setPreviewUri(null);
-  }, []);
+  }, [useFrontCamera]);
 
   // ── Step 3: Proceed — ab local save + DB entry ─────────────────────────────
 

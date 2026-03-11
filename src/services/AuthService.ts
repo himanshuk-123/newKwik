@@ -2,6 +2,7 @@ import { loginApi } from '../services/ApiClient';
 import { LoginRequest, LoginResponse } from '../types/api';
 import { select, run } from '../database/db';
 import { syncAllData } from './syncService';
+import RNFS from 'react-native-fs';
 
 export interface StoredUser {
   id: number;
@@ -67,12 +68,28 @@ export const login = async (credentials: LoginRequest): Promise<StoredUser> => {
 
 /** Clear user on logout */
 export const logout = async (): Promise<void> => {
-  // ✅ FIX: Added [] params to all run() calls — good practice even though defaults exist
+  // ── User & dashboard data ──
   await run('DELETE FROM users', []);
   await run('DELETE FROM dashboard', []);
-  await run('DELETE FROM status_leads', []);       // ✅ Generic status_leads table
-  await run('DELETE FROM completed_leads', []);    // ✅ CompletedLeads card page data
-  await run('DELETE FROM daybook', []);            // ✅ Daybook counters
-  await run('DELETE FROM pending_leads', []);      // ✅ Also clear pending queue on logout
+  await run('DELETE FROM status_leads', []);
+  await run('DELETE FROM completed_leads', []);
+  await run('DELETE FROM daybook', []);
+  await run('DELETE FROM pending_leads', []);
   await run("UPDATE sync_meta SET status = 'pending', last_synced_at = NULL", []);
+
+  // ── Image & vehicle detail queues ──
+  await run('DELETE FROM image_captures', []);
+  await run('DELETE FROM pending_vehicle_details', []);
+
+  // ── Local image/video files delete karo ──
+  try {
+    const leadsDir = `${RNFS.DocumentDirectoryPath}/kwikcheck/leads`;
+    const exists = await RNFS.exists(leadsDir);
+    if (exists) {
+      await RNFS.unlink(leadsDir);
+      console.log('[Auth] Deleted local image files');
+    }
+  } catch (e) {
+    console.warn('[Auth] Failed to delete local files:', e);
+  }
 };

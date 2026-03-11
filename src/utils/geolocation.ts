@@ -51,14 +51,8 @@ const requestLocationPermission = async (): Promise<boolean> => {
 // GET LOCATION — Promisified, never throws
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const getLocationAsync = async (): Promise<LocationCoords> => {
-  const hasPermission = await requestLocationPermission();
-  if (!hasPermission) {
-    console.warn('[Geo] ⚠️ Location permission denied');
-    return { lat: '0', long: '0', timeStamp: new Date().toISOString() };
-  }
-
-  return new Promise((resolve) => {
+const getPosition = (highAccuracy: boolean, timeout: number): Promise<LocationCoords> =>
+  new Promise((resolve) => {
     Geolocation.getCurrentPosition(
       (position) => {
         const coords: LocationCoords = {
@@ -66,18 +60,37 @@ export const getLocationAsync = async (): Promise<LocationCoords> => {
           long: position.coords.longitude.toString(),
           timeStamp: new Date().toISOString(),
         };
-        console.log('[Geo] 📍 Location captured:', coords.lat, coords.long);
+        console.log(`[Geo] 📍 Location captured (highAccuracy=${highAccuracy}):`, coords.lat, coords.long);
         resolve(coords);
       },
       (error) => {
-        console.warn('[Geo] ⚠️ GPS failed:', error.message, `(code: ${error.code})`);
-        resolve({ lat: '0', long: '0', timeStamp: new Date().toISOString() });
+        console.warn(`[Geo] ⚠️ GPS failed (highAccuracy=${highAccuracy}):`, error.message, `(code: ${error.code})`);
+        resolve({ lat: '', long: '', timeStamp: '' }); // empty = signal to retry
       },
       {
-        enableHighAccuracy: false,  // Network/WiFi — fast, works indoors
-        timeout: 5000,              // 5 seconds max
-        maximumAge: 10000,          // Accept cached position up to 10s old
+        enableHighAccuracy: highAccuracy,
+        timeout,
+        maximumAge: 60000,   // Accept cached position up to 60s old (Expo default)
       }
     );
   });
+
+export const getLocationAsync = async (): Promise<LocationCoords> => {
+  const hasPermission = await requestLocationPermission();
+  if (!hasPermission) {
+    console.warn('[Geo] ⚠️ Location permission denied');
+    return { lat: '0', long: '0', timeStamp: new Date().toISOString() };
+  }
+
+  // Try 1: High accuracy (GPS), 10s timeout — matches Expo Accuracy.Balanced
+  let coords = await getPosition(true, 10000);
+  if (coords.lat && coords.lat !== '0') return coords;
+
+  // Try 2: Low accuracy (Network/WiFi), 10s timeout — fallback
+  coords = await getPosition(false, 10000);
+  if (coords.lat && coords.lat !== '0') return coords;
+
+  // Both failed — return zeros
+  console.warn('[Geo] ⚠️ All location attempts failed, using 0,0');
+  return { lat: '0', long: '0', timeStamp: new Date().toISOString() };
 };

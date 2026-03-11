@@ -37,8 +37,12 @@ const uploadAxios = axios.create({
 });
 
 interface UploadResponse {
-  ERRORCODE: string;
-  MESSAGE: string;
+  ERRORCODE?: string;
+  ERROR?: string;
+  Error?: string;
+  error?: string;
+  MESSAGE?: string;
+  Message?: string;
 }
 
 /**
@@ -79,7 +83,7 @@ const uploadImageApi = async (
     const response = await uploadAxios.post('/DocumentUploadOtherImageApp', payload, {
       headers: {
         'TokenID': token,
-        'version': '6',
+        'Version': '2',
       },
     });
 
@@ -289,7 +293,8 @@ export const uploadSingleImage = async (
       res = await uploadImageApi(token, image, base64);
     }
 
-    if (res.ERRORCODE === '0') {
+    const errorFlag = res.ERRORCODE ?? res.ERROR ?? res.Error ?? res.error;
+    if (String(errorFlag) === '0') {
       await markUploaded(image.id);
       console.log(`[Upload] ✅ SUCCESS: ${image.side} → ${fieldName} (lead: ${image.lead_id})`);
 
@@ -304,8 +309,8 @@ export const uploadSingleImage = async (
       console.warn(`[Upload] ❌ SERVER REJECTED: ${image.side}`, {
         field: fieldName,
         leadId: image.lead_id,
-        error: res.ERRORCODE,
-        message: res.MESSAGE,
+        error: errorFlag,
+        message: res.MESSAGE ?? res.Message,
       });
       return false;
     }

@@ -3,6 +3,8 @@ import { StoredUser, login, logout, getStoredUser } from '../services/AuthServic
 import { getDashboard } from '../services/DashboardService';
 import { SyncManager } from '../services/Syncmanager';
 import { DashboardRecord, LoginRequest } from '../types/api';
+import { useValuationStore } from './valuation.store';
+import { useCreateLeadStore } from './CreateLeadStore';
 
 interface AppState {
   // Auth
@@ -73,11 +75,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     SyncManager.destroy();
     console.log('[STORE] SyncManager destroyed');
     
-    // 2. Clear auth from storage
+    // 2. Clear auth + data from storage
     await logout();
-    console.log('[STORE] Auth cleared');
+    console.log('[STORE] Auth & data cleared');
     
-    // 3. Clear app state
+    // 3. Reset other Zustand stores
+    useValuationStore.getState().reset();
+    useCreateLeadStore.getState().reset();
+    
+    // 4. Clear app state
     set({ user: null, isAuthenticated: false, dashboard: null, error: null });
     console.log('[STORE] App state cleared — user should now see Login screen');
   },

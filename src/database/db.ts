@@ -145,6 +145,10 @@ const MIGRATIONS: { version: number; sql: string }[] = [
   // v32-33 — Questionnaire answers linked to image captures
   { version: 32, sql: `ALTER TABLE image_captures ADD COLUMN answer_data TEXT DEFAULT NULL` },
   { version: 33, sql: `ALTER TABLE image_captures ADD COLUMN answer_status TEXT DEFAULT NULL` },
+  // v34 — lead_id for pending_vehicle_details (image-dependency check ke liye)
+  { version: 34, sql: `ALTER TABLE pending_vehicle_details ADD COLUMN lead_id TEXT DEFAULT NULL` },
+  // v35 — last_error for pending_leads (debugging ke liye)
+  { version: 35, sql: `ALTER TABLE pending_leads ADD COLUMN last_error TEXT DEFAULT NULL` },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────

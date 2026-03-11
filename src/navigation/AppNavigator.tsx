@@ -62,7 +62,7 @@ const AppNavigator = () => {
   }}>
     <Stack.Screen name="MainApp" component={DrawerNavigator} options={{ headerShown: false }} />
     <Stack.Screen name="CreateLeads" component={CreateLeadsPage} />
-    <Stack.Screen name="MyTasks" component={MyTasksPage} />
+    <Stack.Screen name="MyTasks" component={MyTasksPage}  options={{ title: 'My Tasks', headerShown: true }}/>
     <Stack.Screen name="LeadsInProgress" component={LeadsInProgress} />
     <Stack.Screen name="QCLeads" component={QCLeads} />
     <Stack.Screen name="QCHoldLeads" component={QCHoldLeads} />
@@ -77,7 +77,7 @@ const AppNavigator = () => {
     <Stack.Screen
       name="VehicleDetails"
       component={VehicleDetails}
-      options={{ title: 'Vehicle Details', headerShown: false }}
+      options={{ title: 'Vehicle Details', headerShown: true }}
     />
     <Stack.Screen
       name="Camera"
